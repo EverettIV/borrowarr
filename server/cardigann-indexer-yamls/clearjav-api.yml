@@ -49,7 +49,7 @@ settings:
     default: "You must download or upload data within 30 days of joining, or your account may be pruned for lurking."
 
 login:
-  path: /api/torrents
+  path: api/torrents
   method: get
   error:
     - selector: a[href*="/login"]
@@ -75,7 +75,6 @@ search:
     sortField: "{{ .Config.sort }}"
     sortDirection: "{{ .Config.type }}"
     perPage: 100
-    # there are no categories on the site so using XXX as a default
 
   keywordsfilters:
     - name: re_replace
@@ -87,15 +86,20 @@ search:
 
   fields:
     category:
-      text: 1
+      selector: category_id
     title:
       selector: name
     details:
       selector: details_link
     download:
       selector: download_link
-    infohash:
-      selector: info_hash
+    poster_meta:
+      selector: meta.poster
+    poster_https:
+      selector: meta.poster:has(:contains(https))
+      optional: true
+    poster:
+      text: "{{ if .Result.poster_https }}{{ .Result.poster_https }}{{ else }}https://pics.dmm.co.jp/{{ .Result.poster_meta }}{{ end }}"
     files:
       selector: num_file
     seeders:
@@ -145,4 +149,4 @@ search:
     minimumseedtime:
       # 7 days (as seconds = 7 x 24 x 60 x 60)
       text: 604800
-# json UNIT3D 9.1.5 (custom)
+# json UNIT3D 9.2.0 (custom)

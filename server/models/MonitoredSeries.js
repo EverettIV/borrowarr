@@ -67,6 +67,20 @@ const MonitoredSeries = sequelize.define(
       allowNull: true,
       comment: "JSON array of selected episode keys (season-episode)",
     },
+    episodeStatus: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: "JSON map of episodeKey -> { status, quality, filePath, ... }",
+    },
+    lastChecked: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    fileExists: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
   },
   {
     tableName: "monitored_series",

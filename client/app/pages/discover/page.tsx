@@ -731,38 +731,73 @@ const Discover = () => {
       );
 
       if (moviesRes.data.success && moviesRes.data.results) {
-        // Extract unique production companies from movies
-        const companiesMap = new Map<number, CategoryItem>();
+        const companiesMap = new Map<
+          number,
+          { item: CategoryItem; score: number }
+        >();
 
-        // Get details for first few movies to extract production companies
         const moviePromises = moviesRes.data.results
-          .slice(0, 10)
-          .map((movie: any) =>
+          .slice(0, 20)
+          .map((movie: any, listIndex: number) =>
             axios
               .get(`${API_BASE_URL}/api/TMDB/movie/${movie.id}`)
-              .then((res) => res.data.movie)
+              .then((res) => ({
+                movie: res.data.movie as {
+                  popularity?: number;
+                  production_companies?: Array<{
+                    id: number;
+                    name: string;
+                    logo_path: string | null;
+                  }>;
+                } | null,
+                listIndex,
+                listPopularity: Number(movie.popularity) || 0,
+              }))
               .catch(() => null),
           );
 
         const movieDetails = await Promise.all(moviePromises);
 
-        movieDetails.forEach((movie: any) => {
-          if (movie?.production_companies) {
-            movie.production_companies.forEach((company: any) => {
-              if (company.logo_path && !companiesMap.has(company.id)) {
-                companiesMap.set(company.id, {
-                  id: company.id,
-                  name: company.name,
-                  logo_path: company.logo_path,
-                });
-              }
+        movieDetails.forEach((entry) => {
+          const movie = entry?.movie;
+          if (!movie?.production_companies?.length) return;
+
+          const rankWeight = Math.max(1, 21 - (entry?.listIndex ?? 20));
+          const popularityWeight = Math.max(
+            1,
+            entry?.listPopularity || movie.popularity || 1,
+          );
+          const movieWeight = rankWeight * Math.log10(popularityWeight + 10);
+
+          movie.production_companies.forEach((company, companyIndex) => {
+            if (!company.logo_path) return;
+
+            const roleWeight = companyIndex === 0 ? 1.5 : 1;
+            const delta = movieWeight * roleWeight;
+            const existing = companiesMap.get(company.id);
+
+            if (existing) {
+              existing.score += delta;
+              return;
+            }
+
+            companiesMap.set(company.id, {
+              score: delta,
+              item: {
+                id: company.id,
+                name: company.name,
+                logo_path: company.logo_path,
+              },
             });
-          }
+          });
         });
 
-        setStudios(
-          shuffleItems(Array.from(companiesMap.values())).slice(0, 15),
-        );
+        const sortedStudios = Array.from(companiesMap.values())
+          .sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name))
+          .map(({ item }) => item)
+          .slice(0, 15);
+
+        setStudios(sortedStudios);
       }
 
       // Fetch popular TV shows to extract networks

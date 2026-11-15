@@ -605,8 +605,11 @@ const Search = () => {
                 No Indexers Found
               </p>
               <p className="text-xs text-foreground/60 mb-4">
-                Add indexers in Settings to start searching
+                {user?.permissions?.admin
+                  ? "Add indexers before search can run. Nothing is connected until you save one."
+                  : "An admin has to add indexers before search works on this instance."}
               </p>
+              {user?.permissions?.admin && (
               <Button
                 as="a"
                 color="secondary"
@@ -616,6 +619,7 @@ const Search = () => {
               >
                 Add Indexers
               </Button>
+              )}
             </div>
           ) : (
             <div className="bg-content2/50 backdrop-blur-sm border border-secondary/20 rounded-2xl overflow-hidden">

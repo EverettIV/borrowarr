@@ -129,12 +129,17 @@ async function runAutoRenameForUser(userId) {
       series: { previewed: 0, renamed: 0, failed: 0, errors: [] },
     };
 
+    const { getMovieMediaDirectory, getSeriesMediaDirectory } = require('./fileScanner');
+    const movieMediaDir = getMovieMediaDirectory(settings);
+    const seriesMediaDir = getSeriesMediaDirectory(settings);
+
     // Process movies if directory is configured
-    if (settings.movieDirectory) {
+    if (movieMediaDir) {
       console.log(`🎬 [AutoRename] Processing movies for user ${userId}...`);
       
       try {
-        const movieRenames = await previewMovieRenames(userId, settings.movieFileFormat);
+        const moviePreview = await previewMovieRenames(userId, settings.movieFileFormat);
+        const movieRenames = moviePreview.renames || [];
         results.movies.previewed = movieRenames.length;
         
         if (movieRenames.length > 0) {
@@ -157,7 +162,8 @@ async function runAutoRenameForUser(userId) {
       console.log(`📺 [AutoRename] Processing series for user ${userId}...`);
       
       try {
-        const seriesRenames = await previewSeriesRenames(userId, settings.seriesFileFormat);
+        const seriesPreview = await previewSeriesRenames(userId, settings.seriesFileFormat);
+        const seriesRenames = seriesPreview.renames || [];
         results.series.previewed = seriesRenames.length;
         
         if (seriesRenames.length > 0) {

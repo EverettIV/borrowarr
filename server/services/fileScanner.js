@@ -206,11 +206,27 @@ function formatBytes(bytes) {
 }
 
 /**
+ * Canonical movie library path (media folder)
+ */
+function getMovieMediaDirectory(settings) {
+  if (!settings) return null;
+  return settings.movieWatcherDestination || settings.movieDirectory || null;
+}
+
+/**
+ * Canonical TV library path (media folder)
+ */
+function getSeriesMediaDirectory(settings) {
+  if (!settings) return null;
+  return settings.seriesWatcherDestination || settings.seriesDirectory || null;
+}
+
+/**
  * Get user's movie directory from settings
  */
 async function getUserMovieDirectory(userId) {
   const settings = await Settings.findOne({ where: { userId } });
-  return settings?.movieDirectory || null;
+  return getMovieMediaDirectory(settings);
 }
 
 /**
@@ -218,7 +234,29 @@ async function getUserMovieDirectory(userId) {
  */
 async function getUserSeriesDirectory(userId) {
   const settings = await Settings.findOne({ where: { userId } });
-  return settings?.seriesDirectory || null;
+  return getSeriesMediaDirectory(settings);
+}
+
+/** Folder scanned by manual preview / rename (media library vs download folder). */
+function getNamingScanDirectory(settings, type) {
+  if (!settings) return null;
+  if (type === 'movie') {
+    const target = settings.movieNamingScanTarget || 'media';
+    if (target === 'download') {
+      return settings.movieDownloadDirectory || null;
+    }
+    return getMovieMediaDirectory(settings);
+  }
+  const target = settings.seriesNamingScanTarget || 'media';
+  if (target === 'download') {
+    return settings.seriesDownloadDirectory || null;
+  }
+  return getSeriesMediaDirectory(settings);
+}
+
+async function getUserNamingScanDirectory(userId, type) {
+  const settings = await Settings.findOne({ where: { userId } });
+  return getNamingScanDirectory(settings, type);
 }
 
 /**
@@ -334,6 +372,10 @@ async function findSeriesEpisodeFile(series, seriesDirectory, seasonNumber, epis
 module.exports = {
   findMovieFile,
   findSeriesEpisodeFile,
+  getNamingScanDirectory,
+  getUserNamingScanDirectory,
+  getMovieMediaDirectory,
+  getSeriesMediaDirectory,
   getUserMovieDirectory,
   getUserSeriesDirectory,
   normalizeString,

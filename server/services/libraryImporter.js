@@ -9,40 +9,62 @@ const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w500';
 
 /**
+ * Pick release year when filenames contain multiple year-like numbers (e.g. 2001…1968…1080p).
+ */
+function findYearInMovieFilename(nameWithoutExt) {
+  const candidates = [];
+  const re = /(?:^|[.\s_\-[(])(19\d{2}|20\d{2})(?=[.\s_\-[\]().,]|$)/g;
+  let m;
+  while ((m = re.exec(nameWithoutExt)) !== null) {
+    const year = parseInt(m[1], 10);
+    const index = m.index + m[0].indexOf(m[1]);
+    candidates.push({ year, index });
+  }
+
+  if (!candidates.length) {
+    return { year: null, index: -1 };
+  }
+
+  const qualMatch = nameWithoutExt.match(/\b(2160p|1080p|720p|480p|4k|uhd)\b/i);
+  const qualIdx = qualMatch ? qualMatch.index : nameWithoutExt.length;
+  const beforeQual = candidates.filter((c) => c.index < qualIdx);
+  const pool = beforeQual.length ? beforeQual : candidates;
+
+  if (pool.length > 1) {
+    return pool[pool.length - 1];
+  }
+  return pool[0];
+}
+
+/**
  * Extract movie title and year from filename
  */
 function parseMovieFilename(filename) {
-  // Remove file extension
   const nameWithoutExt = filename.replace(/\.(mkv|mp4|avi|mov|wmv|flv|webm|m4v)$/i, '');
-  
-  // Common patterns:
-  // "Movie Title (2020)"
-  // "Movie Title 2020"
-  // "Movie.Title.2020.1080p.BluRay"
-  // "Movie_Title_2020_720p"
-  
-  // Try to extract year (4 digits, 19xx or 20xx)
-  const yearMatch = nameWithoutExt.match(/\b(19\d{2}|20\d{2})\b/);
-  const year = yearMatch ? parseInt(yearMatch[1]) : null;
-  
+
+  const { year, index: yearIdx } = findYearInMovieFilename(nameWithoutExt);
+
   let title = nameWithoutExt;
-  
-  if (year) {
-    // Remove year and everything after it
-    title = nameWithoutExt.substring(0, nameWithoutExt.indexOf(year.toString()));
+
+  if (year != null && yearIdx >= 0) {
+    title = nameWithoutExt.substring(0, yearIdx);
+    title = title.replace(/[(\[]\s*$/g, '').trim();
   } else {
-    // Remove quality indicators and other metadata
-    title = title.replace(/\b(1080p|720p|480p|2160p|4k|BluRay|WEB-DL|WEBRip|HDRip|DVDRip|BRRip|x264|x265|HEVC|AAC|DTS|5\.1)\b.*/gi, '');
+    // Require a release separator before tags so "Nuts" isn't stripped as telesync "ts".
+    title = title.replace(
+      /(?:[.\s_\-]+(?:1080p|720p|480p|2160p|4k|uhd|bluray|web-?dl|webrip|hdrip|dvdrip|brrip|telesync|x264|x265|hevc|aac|dts|torrent|dvdscr|xvid|divx|repack|proper|internal)\b|[.\s_\-](?:ts|cam)\b).*$/i,
+      '',
+    );
   }
-  
-  // Clean up the title
+
   title = title
-    .replace(/[._]/g, ' ')  // Replace dots and underscores with spaces
-    .replace(/\s+/g, ' ')    // Normalize whitespace
-    .replace(/\(.*?\)/g, '') // Remove anything in parentheses
-    .replace(/\[.*?\]/g, '') // Remove anything in brackets
+    .replace(/[._]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\(.*?\)/g, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/[-–]\s*$/g, '')
     .trim();
-  
+
   return {
     title,
     year,
@@ -50,8 +72,38 @@ function parseMovieFilename(filename) {
   };
 }
 
+function normalizeTitleKey(title) {
+  return (title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function titleSimilarityScore(query, candidate) {
+  const a = normalizeTitleKey(query);
+  const b = normalizeTitleKey(candidate);
+  if (!a || !b) return 0;
+  if (a === b) return 100;
+  if (a.includes(b) || b.includes(a)) {
+    return Math.min(92, 55 + Math.min(a.length, b.length));
+  }
+
+  const wordsA = (query || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 2);
+  const wordsB = (candidate || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 2);
+  if (!wordsA.length || !wordsB.length) return 0;
+
+  let hits = 0;
+  for (const w of wordsA) {
+    if (wordsB.some((bw) => bw === w || bw.includes(w) || w.includes(bw))) hits += 1;
+  }
+  return Math.round((hits / wordsA.length) * 75);
+}
+
 /**
- * Search TMDB for a movie
+ * Search TMDB for a movie; picks the best-scoring result instead of the API's first hit.
  */
 async function searchTMDB(title, year = null) {
   try {
@@ -60,18 +112,38 @@ async function searchTMDB(title, year = null) {
       query: title,
       include_adult: false,
     };
-    
+
     if (year) {
       params.year = year;
     }
-    
+
     const response = await axios.get(`${TMDB_BASE_URL}/search/movie`, { params });
-    
-    if (response.data.results && response.data.results.length > 0) {
-      return response.data.results[0]; // Return best match
+    const results = response.data.results || [];
+    if (!results.length) return null;
+
+    const normQuery = normalizeTitleKey(title);
+    const minScore = normQuery.length <= 6 ? 68 : 48;
+
+    let best = null;
+    let bestScore = 0;
+
+    for (const r of results.slice(0, 15)) {
+      const candidate = r.title || r.original_title || '';
+      let score = titleSimilarityScore(title, candidate);
+      if (year && r.release_date) {
+        const y = parseInt(String(r.release_date).slice(0, 4), 10);
+        if (y === year) score += 22;
+        else if (Number.isFinite(y)) score -= 28;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
     }
-    
-    return null;
+
+    if (!best || bestScore < minScore) return null;
+
+    return { ...best, tmdbMatchScore: bestScore };
   } catch (error) {
     console.error(`Error searching TMDB for "${title}":`, error.message);
     return null;
@@ -287,6 +359,7 @@ async function importMoviesFromDirectory(userId, options = {}) {
 
 module.exports = {
   parseMovieFilename,
+  normalizeTitleKey,
   searchTMDB,
   scanMovieDirectory,
   importMoviesFromDirectory,

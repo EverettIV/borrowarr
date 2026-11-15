@@ -30,8 +30,16 @@ router.post('/import-series', settingsController.importSeries);
 // Preview file renames
 router.post('/preview-renames', settingsController.previewRenames);
 
+// Manual TMDB match for one preview row
+router.post('/rename-apply-tmdb', settingsController.applyMovieTmdbMatch);
+
 // Execute file renames
 router.post('/execute-renames', settingsController.executeRenames);
+
+// Background rename batch (resumable progress)
+router.post('/rename-batch/start', settingsController.startRenameBatch);
+router.get('/rename-batch/status', settingsController.getRenameBatchStatus);
+router.post('/rename-batch/dismiss', settingsController.dismissRenameBatch);
 
 // Auto-rename service status
 router.get('/auto-rename/status', settingsController.getAutoRenameStatus);
@@ -45,6 +53,9 @@ router.get('/download-watcher/status', settingsController.getDownloadWatcherStat
 // Trigger manual download watcher scan
 router.post('/download-watcher/trigger', settingsController.triggerDownloadWatcherScan);
 
+// Preview moves without changing files (dry run)
+router.post('/download-watcher/preview', settingsController.previewDownloadWatcher);
+
 // Get pending files for manual approval
 router.get('/download-watcher/pending', settingsController.getPendingFiles);
 
@@ -53,5 +64,11 @@ router.post('/download-watcher/approve', settingsController.approveFile);
 
 // Reject a pending file
 router.post('/download-watcher/reject', settingsController.rejectFile);
+
+// Anomaly detector (library health)
+router.get('/anomaly-detector/status', settingsController.getAnomalyDetectorStatus);
+router.post('/anomaly-detector/scan', settingsController.scanAnomalies);
+router.post('/anomaly-detector/cancel', settingsController.cancelAnomalyScan);
+router.post('/anomaly-detector/delete', settingsController.deleteAnomalyMediaFile);
 
 module.exports = router;

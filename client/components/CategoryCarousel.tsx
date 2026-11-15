@@ -119,16 +119,17 @@ const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
           className="cursor-pointer group transition-all duration-300"
           onClick={() => handleItemClick(item)}
         >
-          <div className="relative aspect-video w-full overflow-hidden rounded-lg bg-content2 border border-secondary/20 hover:border-secondary/60 hover:shadow-xl hover:shadow-secondary/20 transition-all duration-300 flex items-center justify-center p-3 sm:p-4">
+          <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-secondary/40 bg-gradient-to-br from-secondary/35 via-violet-900/45 to-secondary/25 shadow-inner shadow-secondary/10 hover:border-secondary/70 hover:from-secondary/45 hover:via-violet-800/55 hover:to-secondary/35 hover:shadow-xl hover:shadow-secondary/25 transition-all duration-300 flex items-center justify-center p-3 sm:p-4">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.12)_0%,transparent_70%)]" />
             {item.logo_path ? (
               <img
                 alt={item.name}
-                className="max-w-full max-h-full object-contain filter brightness-0 invert dark:filter-none transition-all duration-300 group-hover:scale-110"
+                className="relative z-[1] max-h-[70%] max-w-[88%] object-contain drop-shadow-[0_2px_10px_rgba(0,0,0,0.45)] brightness-110 contrast-125 transition-transform duration-300 group-hover:scale-105"
                 loading="lazy"
                 src={`https://image.tmdb.org/t/p/w500${item.logo_path}`}
               />
             ) : (
-              <span className="text-sm sm:text-base font-bold text-center text-foreground/80 group-hover:text-secondary transition-colors leading-tight">
+              <span className="relative z-[1] text-sm sm:text-base font-bold text-center text-white/95 group-hover:text-white transition-colors leading-tight drop-shadow-sm">
                 {item.name}
               </span>
             )}

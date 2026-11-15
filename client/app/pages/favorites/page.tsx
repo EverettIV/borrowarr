@@ -310,64 +310,24 @@ const FavoritesPage = () => {
 
       if (favorite.mediaType === "movie") {
         // Movie download logic
-        const torrentResponse = await axios.get(
-          `${API_BASE_URL}/api/TMDB/movie/${favorite.tmdbId}/torrents`,
+        const { addMovieToMonitor } = await import("@/lib/monitoring");
+        const monitorResult = await addMovieToMonitor(
           {
-            params: {
-              title: favorite.title,
-              year: year,
-              categoryIds: "2000",
-            },
-            headers: token
-              ? {
-                  Authorization: `Bearer ${token}`,
-                }
-              : undefined,
-            timeout: 30000,
+            userId: user.id,
+            tmdbId: favorite.tmdbId,
+            title: favorite.title,
+            posterUrl: favorite.posterUrl,
+            releaseDate: favorite.releaseDate,
+            overview: favorite.overview,
+            qualityProfile: "any",
+            minAvailability: "released",
+            monitor: "movieOnly",
+            searchOnAdd: true,
           },
+          token,
         );
 
-        if (
-          !torrentResponse.data.success ||
-          torrentResponse.data.results.length === 0
-        ) {
-          throw new Error(`No torrents found for ${favorite.title}`);
-        }
-
-        const bestTorrent = torrentResponse.data.results.reduce(
-          (best: any, current: any) => {
-            const bestPriority = best.indexerPriority ?? 25;
-            const currentPriority = current.indexerPriority ?? 25;
-            if (currentPriority < bestPriority) return current;
-            if (currentPriority > bestPriority) return best;
-
-            const bestSeeders = best.seeders || 0;
-            const currentSeeders = current.seeders || 0;
-            return currentSeeders > bestSeeders ? current : best;
-          },
-        );
-
-        await axios.post(`${API_BASE_URL}/api/MonitoredMovies`, {
-          userId: user.id,
-          tmdbId: favorite.tmdbId,
-          title: favorite.title,
-          posterUrl: favorite.posterUrl,
-          releaseDate: favorite.releaseDate,
-          overview: favorite.overview,
-          qualityProfile: "any",
-          minAvailability: "released",
-          monitor: "movieOnly",
-        });
-
-        const downloadResponse = await axios.post(
-          `${API_BASE_URL}/api/DownloadClients/grab`,
-          {
-            downloadUrl: bestTorrent.downloadUrl,
-            protocol: bestTorrent.protocol,
-          },
-        );
-
-        if (downloadResponse.data.success) {
+        if (monitorResult.success) {
           setDownloadSuccess((prev) => new Set(prev).add(mediaId));
           setTimeout(() => {
             setDownloadSuccess((prev) => {

@@ -6,8 +6,12 @@ language: en-US
 type: public
 encoding: UTF-8
 requestDelay: 2
+certificates:
+  - 1dad798f690521cfb37d6817b66f1f08fe8c8f36 # using CA from audiobookbay.lu (sister site)
 links:
-  - http://ebb.la/ # site does not support https SSL_ERROR_BAD_CERT_DOMAIN
+  - https://ebb.la/
+legacylinks:
+  - http://ebb.la/
 
 caps:
   categorymappings:
@@ -65,7 +69,6 @@ caps:
   modes:
     search: [q]
     book-search: [q]
-    music-search: [q]
 
 settings: []
 
@@ -85,13 +88,15 @@ download:
 search:
   paths:
     # with just 5 results per page, try to grab up to 25 results
-    # http://ebb.la/?s=teeth
-    # http://ebb.la/page/2/?s=teeth
+    # https://ebb.la/?s=teeth
+    # https://ebb.la/page/2/?s=teeth
     - path: /
     - path: "page/2/"
     - path: "page/3/"
     - path: "page/4/"
     - path: "page/5/"
+  keywordsfilters:
+    - name: tolower
   inputs:
     s: "{{ .Keywords }}"
 
@@ -111,7 +116,7 @@ search:
       default: Other
       filters:
         - name: re_replace
-          args: ["(?i)\\bEbooks?\\b", ""]
+          args: ["(?i)\\bE-?books?\\b", ""]
         - name: regexp
           args: "E book under:\\s+(.+?)\\s?\\\xA0"
     title:
@@ -119,9 +124,15 @@ search:
     details:
       selector: a.detail
       attribute: href
+      filters:
+        - name: replace
+          args: ["http:", "https:"]
     download:
       selector: a.detail
       attribute: href
+      filters:
+        - name: replace
+          args: ["http:", "https:"]
     poster:
       selector: img[src^="http"]:not(img[src*="images/default_cover.jpg"])
       attribute: src

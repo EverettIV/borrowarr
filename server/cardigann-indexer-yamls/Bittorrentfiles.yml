@@ -84,6 +84,7 @@ caps:
     - {id: 59, cat: XXX/Pack, desc: "XXX Pack"}
     - {id: 27, cat: XXX/SD, desc: "XXX SD"}
     - {id: 76, cat: XXX, desc: "XXX Andere"}
+    - {id: 100, cat: XXX/UHD, desc: "XXX UHD"}
 
   modes:
     search: [q]
@@ -198,7 +199,7 @@ search:
     date_day:
       # Heute 13:30:04
       # Gestern 09:10:10
-      selector: td:nth-child(10):contains("Heute"),  td:nth-child(10):contains("Gestern")
+      selector: td:nth-child(10):contains("Heute"), td:nth-child(10):contains("Gestern")
       optional: true
       filters:
         - name: split

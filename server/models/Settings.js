@@ -46,10 +46,30 @@ const Settings = sequelize.define('Settings', {
     allowNull: false,
     defaultValue: '1080p',
   },
+  preferredQuality: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: '720p',
+  },
+  preferSeedersInQualityRange: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
   autoDownload: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true,
+  },
+  allowQualityUpgrade: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  maxGrabsPerCycle: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 5,
   },
   autoRename: {
     type: DataTypes.BOOLEAN,
@@ -71,6 +91,16 @@ const Settings = sequelize.define('Settings', {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: false,
+  },
+  movieWatcherEnabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  seriesWatcherEnabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
   },
   movieDownloadDirectory: {
     type: DataTypes.STRING,
@@ -102,26 +132,151 @@ const Settings = sequelize.define('Settings', {
     allowNull: false,
     defaultValue: false, // if false, files require manual approval before moving
   },
+  applyNamingOnWatcherApprove: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  applyNamingOnAutomaticMove: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  movieNamingScanTarget: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'media', // media | download
+  },
+  movieNamingUseFolders: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false, // false = flat file in scan root; true = one folder per movie
+  },
+  movieRenameCleanupReleaseFolder: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false, // after rename, delete leftover junk in the old release folder
+  },
+  seriesNamingScanTarget: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'media',
+  },
+  movieApplyNamingOnWatcherApprove: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  seriesApplyNamingOnWatcherApprove: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  movieApplyNamingOnAutomaticMove: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  seriesApplyNamingOnAutomaticMove: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  movieWatcherDownloadMode: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'saved', // saved | custom
+  },
+  movieWatcherMediaMode: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'saved',
+  },
+  movieWatcherCustomDownloadDirectory: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
+  },
+  movieWatcherCustomMediaDirectory: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
+  },
+  seriesWatcherDownloadMode: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'saved',
+  },
+  seriesWatcherMediaMode: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'saved',
+  },
+  seriesWatcherCustomDownloadDirectory: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
+  },
+  seriesWatcherCustomMediaDirectory: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
+  },
+  anomalyDetectorAutoScanEnabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  anomalyDetectorScanInterval: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 1800,
+  },
+  anomalyDetectorScanDirKey: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'movieMedia',
+  },
+  anomalyDetectorCustomScanPath: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    defaultValue: null,
+  },
+  anomalyDetectorCheckDuplicates: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  anomalyDetectorCheckCorruption: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  anomalyDetectorCheckLargeFiles: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
   checkInterval: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    defaultValue: 60, // minutes
+    defaultValue: 300, // seconds (default 5 minutes)
   },
   publicRegistrationEnabled: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
     defaultValue: true,
   },
-  // Completed Download Handling (Servarr-style CDH)
+  // Completed Download Handling (CDH)
   completedDownloadHandlingEnabled: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
-    defaultValue: true,
+    defaultValue: false,
   },
   completedDownloadHandlingImportEnabled: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
-    defaultValue: true,
+    defaultValue: false,
   },
   completedDownloadCheckInterval: {
     type: DataTypes.INTEGER,

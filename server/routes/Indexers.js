@@ -10,14 +10,26 @@ const {
   testAllIndexers,
   testIndexer,
   getAvailableIndexers,
+  getIndexerDefinition,
+  getDefinitionSync,
+  updateDefinitionSync,
+  runDefinitionSync,
+  listDefinitionCatalog,
+  testDefinitionCatalog,
+  testOneDefinition,
 } = require("../controllers/Indexers");
 const { authenticateToken } = require("../middleware/auth");
 
-// Available indexers don't need auth (they're just templates)
-router.route("/available").get(getAvailableIndexers);
-
-// All other indexer routes require authentication
+// Indexers are instance configuration. Nothing here is reachable signed out.
 router.use(authenticateToken);
+
+router.route("/definitions").get(listDefinitionCatalog);
+router.route("/definitions/test").post(testDefinitionCatalog);
+router.route("/definitions/test/:id").post(testOneDefinition);
+router.route("/definitions/sync").get(getDefinitionSync).put(updateDefinitionSync);
+router.route("/definitions/sync/run").post(runDefinitionSync);
+router.route("/available").get(getAvailableIndexers);
+router.route("/definition/:id").get(getIndexerDefinition);
 
 router.route("/create").post(createIndexer);
 router.route("/read").get(readIndexers);

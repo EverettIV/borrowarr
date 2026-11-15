@@ -19,7 +19,7 @@ caps:
     search: [q]
     tv-search: [q, season, ep, imdbid, tvdbid, tmdbid]
     movie-search: [q, imdbid, tmdbid]
-    book-search: [q]
+  allowtvsearchimdb: true
 
 settings:
   - name: apikey
@@ -59,7 +59,7 @@ settings:
     default: "You must log in to the Aither web site with your browser once every90 days to prevent your account from getting disabled."
 
 login:
-  path: /api/torrents
+  path: api/torrents
   method: get
   inputs: {} # TODO: remove in v10
   error:
@@ -191,4 +191,4 @@ search:
     minimumseedtime:
       # 5 days (as seconds = 5 x 24 x 60 x 60)
       text: 432000
-# json UNIT3D 9.1.7
+# json UNIT3D 9.2.0

@@ -3,8 +3,20 @@ const User = require('../models/User');
 const MonitoredMovies = require('../models/MonitoredMovies');
 const MonitoredSeries = require('../models/MonitoredSeries');
 const Indexers = require('../models/Indexers');
-const { searchIndexers } = require('../services/indexerSearch');
+const { searchConfiguredIndexers } = require('../services/configuredIndexerSearch');
 const { grabReleaseInternal } = require('./DownloadClients');
+const Settings = require('../models/Settings');
+const {
+  detectQualityFromReleaseTitle,
+  filterTorrentsForQualityPrefs,
+  pickBestTorrentForDownload,
+} = require('../utils/qualitySelection');
+const { normalizePosterUrl } = require('../utils/tmdbImages');
+const {
+  filterReleasesMatchingMovie,
+  pickBestMatchingMovieRelease,
+} = require('../utils/releaseTitleMatch');
+const { logMonitoring } = require('../services/monitoring/activityLog');
 const { Op } = require('sequelize');
 
 const canManageRequests = (user) =>
@@ -14,14 +26,6 @@ const getYear = (dateString) => {
   if (!dateString) return '';
   const date = new Date(dateString);
   return Number.isNaN(date.getTime()) ? '' : date.getFullYear();
-};
-
-const getQualityFromTitle = (title = '') => {
-  const lower = title.toLowerCase();
-  if (lower.includes('2160p') || lower.includes('4k') || lower.includes('uhd')) return '2160p';
-  if (lower.includes('1080p')) return '1080p';
-  if (lower.includes('720p')) return '720p';
-  return 'SD';
 };
 
 const filterByQuality = (results, qualityProfile) => {
@@ -44,20 +48,6 @@ const filterByQuality = (results, qualityProfile) => {
       default:
         return results;
     }
-  });
-};
-
-const pickBestRelease = (results) => {
-  if (!results.length) return null;
-
-  return results.reduce((best, current) => {
-    const bestPriority = best.indexerPriority ?? 25;
-    const currentPriority = current.indexerPriority ?? 25;
-
-    if (currentPriority < bestPriority) return current;
-    if (currentPriority > bestPriority) return best;
-
-    return (current.seeders || 0) > (best.seeders || 0) ? current : best;
   });
 };
 
@@ -158,7 +148,7 @@ const findReleaseForRequest = async (request) => {
   const search = buildApprovalSearch(request);
   const indexers = await Indexers.findAll({
     where: { enabled: true },
-    attributes: ['id', 'name', 'baseUrl', 'username', 'password', 'apiKey', 'protocol', 'indexerType', 'enabled', 'categories', 'verified', 'priority', 'cardigannId'],
+    attributes: ['id', 'name', 'baseUrl', 'username', 'password', 'apiKey', 'protocol', 'indexerType', 'enabled', 'categories', 'verified', 'priority', 'cardigannId', 'cardigannSettings'],
     raw: true,
   });
 
@@ -168,17 +158,77 @@ const findReleaseForRequest = async (request) => {
     throw error;
   }
 
-  const { results } = await searchIndexers(indexers, search.query, search.categoryIds, 100, 0);
+  const { results } = await searchConfiguredIndexers(indexers, search.query, { categoryIds: search.categoryIds });
   const allResults = results || [];
   const preferredIndexerResults = search.preferredIndexer
     ? allResults.filter((result) => result.indexer?.toLowerCase() === search.preferredIndexer.toLowerCase())
     : allResults;
-  const candidates = preferredIndexerResults.length > 0 ? preferredIndexerResults : allResults;
-  const matchingQuality = filterByQuality(candidates, request.qualityProfile || 'any');
-  const bestRelease = pickRequestedRelease(matchingQuality, search.requestedRelease) || pickBestRelease(matchingQuality);
+  let candidates = preferredIndexerResults.length > 0 ? preferredIndexerResults : allResults;
+
+  if (request.qualityProfile && request.qualityProfile !== 'any') {
+    const legacyFiltered = filterByQuality(candidates, request.qualityProfile);
+    if (legacyFiltered.length > 0) {
+      candidates = legacyFiltered;
+    }
+  }
+
+  const userSettings = await Settings.findOne({ where: { userId: request.userId } });
+  const minQuality = userSettings?.minQuality || '720p';
+  const maxQuality = userSettings?.maxQuality || '1080p';
+  const preferredQuality = userSettings?.minQuality || '720p';
+
+  const matchingQuality = filterTorrentsForQualityPrefs(candidates, {
+    minQuality,
+    maxQuality,
+    preferredQuality,
+    itemQualityProfile: request.qualityProfile,
+  });
+
+  const movieYear = getYear(request.releaseDate);
+  let titleMatched =
+    request.mediaType === 'movie'
+      ? filterReleasesMatchingMovie(matchingQuality, {
+          title: request.title,
+          year: movieYear || undefined,
+        })
+      : matchingQuality;
+
+  if (request.mediaType === 'movie' && matchingQuality.length > 0 && titleMatched.length === 0) {
+    const error = new Error(
+      `No releases matched title/year for "${request.title}"${movieYear ? ` (${movieYear})` : ''}`,
+    );
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const bestRelease =
+    pickRequestedRelease(titleMatched, search.requestedRelease) ||
+    (request.mediaType === 'movie'
+      ? pickBestMatchingMovieRelease(titleMatched, {
+          title: request.title,
+          year: movieYear || undefined,
+          preferredQuality,
+          itemQualityProfile: request.qualityProfile,
+          preferSeedersInQualityRange: userSettings?.preferSeedersInQualityRange ?? true,
+        })
+      : pickBestTorrentForDownload(titleMatched, {
+          preferredQuality,
+          itemQualityProfile: request.qualityProfile,
+          preferSeedersInQualityRange: userSettings?.preferSeedersInQualityRange ?? true,
+        }));
 
   if (!bestRelease) {
-    const error = new Error(`No matching release found for "${search.query}"`);
+    const inRangeMsg =
+      matchingQuality.length === 0 && candidates.length > 0
+        ? ` (none within ${minQuality}–${maxQuality})`
+        : '';
+    const titleMsg =
+      request.mediaType === 'movie' && matchingQuality.length > 0
+        ? ' (none matched title/year)'
+        : '';
+    const error = new Error(
+      `No matching release found for "${search.query}"${inRangeMsg}${titleMsg}`,
+    );
     error.statusCode = 422;
     throw error;
   }
@@ -191,7 +241,7 @@ const findReleaseForRequest = async (request) => {
 
 const approveAndDownload = async (request, reviewerId, reviewNote) => {
   const { search, release } = await findReleaseForRequest(request);
-  const quality = getQualityFromTitle(release.title);
+  const quality = detectQualityFromReleaseTitle(release.title);
 
   const downloadResult = await grabReleaseInternal({
     downloadUrl: release.downloadUrl,
@@ -220,7 +270,7 @@ const approveAndDownload = async (request, reviewerId, reviewNote) => {
         tmdbId: request.tmdbId,
         title: request.title,
         overview: request.overview,
-        posterUrl: request.posterPath,
+        posterUrl: normalizePosterUrl(request.posterPath),
         releaseDate: request.releaseDate,
         qualityProfile: request.qualityProfile || 'any',
         status: 'downloading',
@@ -233,6 +283,7 @@ const approveAndDownload = async (request, reviewerId, reviewNote) => {
       status: 'downloading',
       downloadedTorrentId: release.id,
       downloadedTorrentTitle: release.title,
+      posterUrl: normalizePosterUrl(request.posterPath) || movie.posterUrl,
     });
   } else if (request.mediaType === 'series') {
     const [series] = await MonitoredSeries.findOrCreate({
@@ -242,7 +293,7 @@ const approveAndDownload = async (request, reviewerId, reviewNote) => {
         tmdbId: request.tmdbId,
         title: request.title,
         overview: request.overview,
-        posterUrl: request.posterPath,
+        posterUrl: normalizePosterUrl(request.posterPath),
         firstAirDate: request.releaseDate,
         selectedSeasons: JSON.stringify(request.selectedSeasons || []),
         selectedEpisodes: JSON.stringify(request.selectedEpisodes || []),
@@ -251,7 +302,10 @@ const approveAndDownload = async (request, reviewerId, reviewNote) => {
       },
     });
 
-    await series.update({ status: 'downloading' });
+    await series.update({
+      status: 'downloading',
+      posterUrl: normalizePosterUrl(request.posterPath) || series.posterUrl,
+    });
   }
 
   await request.update({
@@ -259,6 +313,38 @@ const approveAndDownload = async (request, reviewerId, reviewNote) => {
     reviewedBy: reviewerId,
     reviewedAt: new Date(),
     reviewNote,
+  });
+
+  const mediaLabel = request.mediaType === 'movie' ? 'Movie' : 'Series';
+  await logMonitoring(request.userId, {
+    action: request.mediaType === 'movie' ? 'movie_grab_queued' : 'episode_grab_queued',
+    status: 'success',
+    summary: `Request approved: ${request.title} — ${release.title}`,
+    details: {
+      tmdbId: request.tmdbId,
+      title: request.title,
+      trigger: 'request_approval',
+      approvedBy: reviewerId,
+      mediaType: request.mediaType,
+      highlights: [
+        `${mediaLabel} request approved`,
+        `release: ${release.title}`,
+        release.indexer ? `indexer: ${release.indexer}` : null,
+        quality ? `quality: ${quality}` : null,
+      ].filter(Boolean),
+    },
+  });
+
+  await logMonitoring(request.userId, {
+    action: request.mediaType === 'movie' ? 'movie_added' : 'series_added',
+    status: 'info',
+    summary: `${request.title} added to monitored list (request approval)`,
+    details: {
+      tmdbId: request.tmdbId,
+      title: request.title,
+      trigger: 'request_approval',
+      approvedBy: reviewerId,
+    },
   });
 
   return {
@@ -345,8 +431,7 @@ exports.createRequest = async (req, res) => {
             tmdbId,
             title,
             overview,
-            posterPath,
-            backdropPath,
+            posterUrl: normalizePosterUrl(posterPath),
             releaseDate,
             qualityProfile: qualityProfile || 'any',
             status: 'monitoring',
@@ -360,8 +445,7 @@ exports.createRequest = async (req, res) => {
             tmdbId,
             title,
             overview,
-            posterPath,
-            backdropPath,
+            posterUrl: normalizePosterUrl(posterPath),
             firstAirDate: releaseDate,
             selectedSeasons: JSON.stringify(selectedSeasons || []),
             selectedEpisodes: JSON.stringify(selectedEpisodes || []),
@@ -444,9 +528,14 @@ exports.getAllRequests = async (req, res) => {
 exports.getMyRequests = async (req, res) => {
   try {
     const userId = req.userId;
+    const { status, mediaType } = req.query;
+
+    const where = { userId };
+    if (status) where.status = status;
+    if (mediaType) where.mediaType = mediaType;
 
     const requests = await MediaRequest.findAll({
-      where: { userId },
+      where,
       order: [['createdAt', 'DESC']],
     });
 

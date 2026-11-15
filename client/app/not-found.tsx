@@ -8,8 +8,8 @@ export default function NotFound() {
       <p className="text-lg mb-8">
         Sorry, the page you are looking for does not exist.
       </p>
-      <Link href="/">
-        <button className="primary-btn">Go Back Home</button>
+      <Link href="/pages/discover">
+        <button className="primary-btn">Go to Discover</button>
       </Link>
     </div>
   );

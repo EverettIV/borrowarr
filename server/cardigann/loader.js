@@ -28,6 +28,7 @@ class CardigannLoader {
       
       let loaded = 0;
       let failed = 0;
+      const failures = [];
 
       for (const file of files) {
         if (file.endsWith('.yml') || file.endsWith('.yaml')) {
@@ -38,11 +39,14 @@ class CardigannLoader {
           } catch (error) {
             console.error(`   ❌ Failed to load ${file}:`, error.message);
             failed++;
+            failures.push({ file, error: error.message });
           }
         }
       }
-      
+
+      this.lastLoad = { loaded, failed, failures };
       console.log(`✅ Cardigann: Loaded ${loaded} indexer definitions (${failed} failed)`);
+      return this.lastLoad;
     } catch (error) {
       console.error('❌ Error loading definitions:', error);
     }
@@ -140,7 +144,7 @@ class CardigannLoader {
    */
   reload() {
     this.definitions.clear();
-    this.loadAllDefinitions();
+    return this.loadAllDefinitions();
   }
 
   /**

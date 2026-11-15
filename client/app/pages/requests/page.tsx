@@ -295,13 +295,15 @@ const Requests = () => {
     }
   };
 
-  const filteredRequests = requests.filter(
-    (request) =>
-      request.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      request.requestedBy?.username
-        .toLowerCase()
-        .includes(searchQuery.toLowerCase()),
-  );
+  const filteredRequests = requests.filter((request) => {
+    const matchesTab =
+      selectedTab === "all" || request.status === selectedTab;
+    const q = searchQuery.toLowerCase();
+    const matchesSearch =
+      request.title.toLowerCase().includes(q) ||
+      (request.requestedBy?.username?.toLowerCase().includes(q) ?? false);
+    return matchesTab && matchesSearch;
+  });
 
   if (!user) {
     return (

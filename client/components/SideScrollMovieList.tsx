@@ -315,93 +315,35 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
       }
 
       const token = localStorage.getItem("accessToken");
-
-      // Fetch torrents
-      const torrentResponse = await axios.get(
-        `${API_BASE_URL}/api/TMDB/movie/${item.id}/torrents`,
-        {
-          params: { title, year, categoryIds: "2000" },
-          headers: token
-            ? {
-                Authorization: `Bearer ${token}`,
-              }
-            : undefined,
-          timeout: 30000,
-        },
-      );
-
-      if (
-        !torrentResponse.data.success ||
-        torrentResponse.data.results.length === 0
-      ) {
-        throw new Error("No torrents found");
-      }
-
-      const bestTorrent = torrentResponse.data.results.reduce(
-        (best: TorrentResult, current: TorrentResult) => {
-          const bestPriority = (best as any).indexerPriority ?? 25;
-          const currentPriority = (current as any).indexerPriority ?? 25;
-          if (currentPriority < bestPriority) return current;
-          if (currentPriority > bestPriority) return best;
-
-          const bestSeeders = best.seeders || 0;
-          const currentSeeders = current.seeders || 0;
-          return currentSeeders > bestSeeders ? current : best;
-        },
-      );
-
       const posterUrl = item.poster_path
         ? `${TMDB_IMAGE_BASE_URL}${item.poster_path}`
         : item.posterUrl || null;
 
-      // Save to monitored movies
-      await axios.post(`${API_BASE_URL}/api/MonitoredMovies`, {
-        userId: user.id,
-        tmdbId: item.id,
-        title: title,
-        posterUrl,
-        releaseDate: item.release_date || null,
-        overview: item.overview,
-        qualityProfile: "any",
-        minAvailability: "released",
-        monitor: "movieOnly",
-      });
-
-      // Extract quality
-      const titleLower = bestTorrent.title.toLowerCase();
-      let quality = "SD";
-      if (titleLower.includes("2160p") || titleLower.includes("4k"))
-        quality = "2160p";
-      else if (titleLower.includes("1080p")) quality = "1080p";
-      else if (titleLower.includes("720p")) quality = "720p";
-
-      // Download the torrent with history
-      const downloadResponse = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+      const { addMovieToMonitor, monitorAddNotificationTitle } = await import(
+        "@/lib/monitoring"
+      );
+      const result = await addMovieToMonitor(
         {
-          downloadUrl: bestTorrent.downloadUrl,
-          protocol: bestTorrent.protocol,
-          releaseName: bestTorrent.title,
-          indexer: bestTorrent.indexer,
-          indexerId: bestTorrent.indexerId,
-          size: bestTorrent.size,
-          sizeFormatted: bestTorrent.sizeFormatted,
-          seeders: bestTorrent.seeders,
-          leechers: bestTorrent.leechers,
-          quality: quality,
-          source: "DiscoverQuickDownload",
-          mediaType: "movie",
-          mediaTitle: title,
+          userId: user.id,
           tmdbId: item.id,
+          title,
+          posterUrl,
+          releaseDate: item.release_date || null,
+          overview: item.overview,
+          qualityProfile: "any",
+          minAvailability: "released",
+          monitor: "movieOnly",
+          searchOnAdd: true,
         },
+        token,
       );
 
-      if (downloadResponse.data.success) {
+      if (result.success) {
         setDownloadSuccess((prev) => new Set(prev).add(movieId));
         showNotification(
-          "Download Started",
-          `Downloading: ${bestTorrent.title}`,
-          "success",
+          monitorAddNotificationTitle(result),
+          result.message || "Added to monitoring",
+          result.action === "grabbed" ? "success" : "info",
         );
         setTimeout(() => {
           setDownloadSuccess((prev) => {
@@ -411,7 +353,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
           });
         }, 3000);
       } else {
-        throw new Error(downloadResponse.data.error || "Failed to download");
+        throw new Error("Failed to add to monitoring");
       }
     } catch (error: any) {
       const errorMsg =

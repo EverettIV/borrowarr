@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
-import { Spinner } from "@heroui/react";
+import { Spinner, addToast, Progress } from "@heroui/react";
 import { Button } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Card, CardBody, CardHeader } from "@heroui/react";
@@ -32,7 +32,6 @@ import {
   Info,
   Clock,
   Zap,
-  Shield,
   Play,
   Pause,
   FolderInput,
@@ -43,18 +42,33 @@ import {
   Ban,
   CheckCircle2,
   List,
+  Search,
 } from "lucide-react";
 import DirectoryPicker from "../../../components/DirectoryPicker";
+import { ActivityLogPanel } from "../../../components/ActivityLogPanel";
+import { AnomalyDetectorPanel } from "../../../components/AnomalyDetectorPanel";
+import { IndexerDefinitionSyncCard } from "../../../components/IndexerDefinitionSyncCard";
+import { SectionInfoCallout } from "../../../components/SectionInfoCallout";
+import { RenameTmdbPickerModal } from "../../../components/RenameTmdbPickerModal";
 import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
 import "../../../styles/FileManagement.scss";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
+type RenameBatchServerStatus = {
+  status: "running" | "complete" | "failed";
+  mediaKind: "movies" | "series";
+  total: number;
+  done: number;
+  success: number;
+  failed: number;
+  activeNames: string[];
+  error?: string | null;
+};
+
 interface FileSettings {
   id?: number;
-  movieDirectory: string | null;
-  seriesDirectory: string | null;
   movieFileFormat: string;
   seriesFileFormat: string;
   autoRename: boolean;
@@ -62,17 +76,44 @@ interface FileSettings {
   autoRenameWarningShown: boolean;
   // Download Watcher settings
   downloadWatcherEnabled: boolean;
+  movieWatcherEnabled: boolean;
+  seriesWatcherEnabled: boolean;
   movieDownloadDirectory: string | null;
   seriesDownloadDirectory: string | null;
   movieWatcherDestination: string | null;
   seriesWatcherDestination: string | null;
   watcherInterval: number;
   watcherAutoApprove: boolean;
-  completedDownloadHandlingEnabled: boolean;
-  completedDownloadHandlingImportEnabled: boolean;
-  completedDownloadCheckInterval: number;
-  completedDownloadImportMode: string;
-  completedDownloadRemoveFromClient: boolean;
+  applyNamingOnWatcherApprove?: boolean;
+  applyNamingOnAutomaticMove?: boolean;
+  movieNamingScanTarget: "media" | "download";
+  movieNamingUseFolders: boolean;
+  movieRenameCleanupReleaseFolder: boolean;
+  seriesNamingScanTarget: "media" | "download";
+  movieApplyNamingOnWatcherApprove: boolean;
+  seriesApplyNamingOnWatcherApprove: boolean;
+  movieApplyNamingOnAutomaticMove: boolean;
+  seriesApplyNamingOnAutomaticMove: boolean;
+  movieWatcherDownloadMode: "saved" | "custom";
+  movieWatcherMediaMode: "saved" | "custom";
+  movieWatcherCustomDownloadDirectory: string | null;
+  movieWatcherCustomMediaDirectory: string | null;
+  seriesWatcherDownloadMode: "saved" | "custom";
+  seriesWatcherMediaMode: "saved" | "custom";
+  seriesWatcherCustomDownloadDirectory: string | null;
+  seriesWatcherCustomMediaDirectory: string | null;
+  anomalyDetectorAutoScanEnabled: boolean;
+  anomalyDetectorScanInterval: number;
+  anomalyDetectorScanDirKey:
+    | "movieMedia"
+    | "movieDownload"
+    | "seriesMedia"
+    | "seriesDownload"
+    | "custom";
+  anomalyDetectorCustomScanPath: string | null;
+  anomalyDetectorCheckDuplicates: boolean;
+  anomalyDetectorCheckCorruption: boolean;
+  anomalyDetectorCheckLargeFiles: boolean;
 }
 
 interface PendingFile {
@@ -85,18 +126,26 @@ interface PendingFile {
   detectedAt: string;
 }
 
-interface WatcherStats {
-  lastRun: string | null;
-  filesProcessed: number;
-  moviesProcessed: number;
-  seriesProcessed: number;
-  errors: number;
-  recentFiles: Array<{
-    name: string;
-    type: string;
-    destination: string;
-    timestamp: string;
-  }>;
+interface WatcherPreviewItem {
+  type: "movie" | "series";
+  kind: "file" | "folder";
+  name: string;
+  sourcePath: string;
+  destinationPath?: string;
+  size?: number;
+  fileCount?: number;
+  action: string;
+  folderName?: string;
+}
+
+interface WatcherSkippedItem {
+  type: "movie" | "series";
+  kind?: "file" | "folder";
+  name: string;
+  sourcePath?: string;
+  reason: string;
+  detail?: string;
+  fileCount?: number;
 }
 
 interface RenameItem {
@@ -104,12 +153,246 @@ interface RenameItem {
   currentName: string;
   newName: string;
   type: "movie" | "series";
+  newPath?: string;
+  directory?: string;
+  movieId?: string | null;
+  seriesId?: string;
+  season?: number;
+  episode?: number;
+  needsReview?: boolean;
+  reviewReasons?: string[];
+  matchSource?: string;
+  sceneName?: string;
+  resolvedTitle?: string;
+  tmdbId?: number | null;
+}
+
+const RENAME_REVIEW_LABELS: Record<string, string> = {
+  title_mismatch: "New title doesn’t match the current filename",
+  lookup_diverged: "TMDB title doesn’t match what we read from the file/folder",
+  empty_target_name: "Could not build a target filename",
+  low_confidence_match: "Weak TMDB match — verify before renaming",
+  no_tmdb_match: "No TMDB match — pick a movie or fix the filename",
+};
+
+/** Full destination path for preview (updates when the user edits the new filename). */
+function effectiveNewPath(item: RenameItem): string {
+  const name = item.newName?.trim();
+  if (!name) return item.newPath || "—";
+
+  const normalizedName = name.replace(/\\/g, "/");
+  const normalizedNewPath = item.newPath?.replace(/\\/g, "/");
+
+  if (normalizedNewPath?.endsWith(normalizedName) && item.newPath) {
+    return item.newPath;
+  }
+
+  if (!normalizedName.includes("/")) {
+    if (item.directory) {
+      const sep = item.directory.includes("\\") ? "\\" : "/";
+      return `${item.directory.replace(/[/\\]+$/, "")}${sep}${name}`;
+    }
+    if (item.newPath) {
+      const sep = item.newPath.includes("\\") ? "\\" : "/";
+      const parts = item.newPath.split(/[/\\]/);
+      parts[parts.length - 1] = name;
+      return parts.join(sep);
+    }
+  }
+
+  if (normalizedNewPath) {
+    const depth = normalizedName.split("/").length;
+    const parts = normalizedNewPath.split("/");
+    const root = parts.slice(0, -depth).join("/");
+    if (root) {
+      const sep = item.newPath?.includes("\\") ? "\\" : "/";
+      return `${root}/${normalizedName}`.split("/").join(sep);
+    }
+  }
+
+  return name;
+}
+
+function RenameLocationPreview({
+  item,
+  needsReview,
+  onNewNameChange,
+}: {
+  item: RenameItem;
+  needsReview?: boolean;
+  onNewNameChange: (value: string) => void;
+}) {
+  const destination = effectiveNewPath(item);
+  const newNameIsPath = /[/\\]/.test(item.newName || "");
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-3">
+      <div className="flex w-full min-w-0 flex-col gap-2">
+        <div className="w-full min-w-0">
+          <CardLine
+            label="From ·"
+            labelClassName="text-default-400"
+            path={item.currentPath}
+            pathClassName="text-default-500"
+          />
+        </div>
+        <div className="w-full min-w-0">
+          <CardLine
+            label="To ·"
+            labelClassName="text-secondary"
+            path={destination}
+            pathClassName="text-secondary"
+          />
+        </div>
+      </div>
+      {!newNameIsPath ? (
+        <div className="w-full min-w-0 border-t border-divider pt-3">
+          <p className="mb-1.5 text-xs text-default-500">New filename</p>
+          <Input
+            aria-label="New filename"
+            classNames={{
+              base: "w-full",
+              input: "font-mono text-xs",
+              inputWrapper: needsReview ? "border-danger w-full" : "w-full",
+            }}
+            color={needsReview ? "danger" : "default"}
+            onChange={(e) => onNewNameChange(e.target.value)}
+            size="sm"
+            value={item.newName}
+            variant="bordered"
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function renameItemSearchHaystack(item: RenameItem): string {
+  const dest = effectiveNewPath(item);
+  return [
+    item.currentName,
+    item.currentPath,
+    item.newName,
+    item.newPath,
+    dest,
+    item.resolvedTitle,
+    item.sceneName,
+    item.matchSource,
+    ...(item.reviewReasons || []).map(
+      (r) => RENAME_REVIEW_LABELS[r] || r,
+    ),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function matchesRenamePreviewSearch(item: RenameItem, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const hay = renameItemSearchHaystack(item);
+  return q.split(/\s+/).every((token) => hay.includes(token));
+}
+
+function CardLine({
+  label,
+  labelClassName,
+  path,
+  pathClassName,
+}: {
+  label: string;
+  labelClassName: string;
+  path: string;
+  pathClassName: string;
+}) {
+  return (
+    <div className="block w-full min-w-0">
+      <div className={`text-[10px] font-medium leading-none ${labelClassName}`}>
+        {label}
+      </div>
+      <div
+        className={`mt-1 block w-full min-w-0 font-mono text-[10px] leading-normal break-all whitespace-normal ${pathClassName}`}
+      >
+        {path}
+      </div>
+    </div>
+  );
+}
+
+interface RenamePreviewStats {
+  scanned?: number;
+  matched?: number;
+  toRename?: number;
+  alreadyNamed?: number;
+  skipped?: Array<{ name: string; reason: string }>;
+}
+
+/** Single generic naming demo used across this page (not live library titles). */
+const FILE_NAMING_EXAMPLES = {
+  movieTitle: "Example Movie",
+  releaseYear: "2017",
+  quality: "720p",
+  source: "BluRay",
+  codec: "x264",
+  releaseGroup: "GRP",
+  seriesTitle: "Example Series",
+  episodeTitle: "Example Episode",
+  seasonPadded: "01",
+  episodePadded: "01",
+  ext: "mkv",
+} as const;
+
+const MOVIE_FORMAT_TOKENS = [
+  "{Movie Title}",
+  "{Release Year}",
+  "{Quality}",
+  "{Source}",
+  "{Codec}",
+  "{Audio}",
+  "{Edition}",
+  "{Release Group}",
+] as const;
+
+const SERIES_FORMAT_TOKENS = [
+  "{Series Title}",
+  "{season:00}",
+  "{episode:00}",
+  "{Episode Title}",
+  "{Quality}",
+  "{Source}",
+  "{Codec}",
+  "{Audio}",
+] as const;
+
+function FormatTokenChips({
+  tokens,
+  onInsert,
+}: {
+  tokens: readonly string[];
+  onInsert: (token: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-default-500">Click to add to format</p>
+      <div className="flex flex-wrap gap-1.5">
+        {tokens.map((token) => (
+          <Chip
+            key={token}
+            className="cursor-pointer hover:bg-secondary/20"
+            onClick={() => onInsert(token)}
+            size="sm"
+            variant="flat"
+          >
+            <code className="text-xs">{token}</code>
+          </Chip>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Default settings for new users
 const DEFAULT_SETTINGS: FileSettings = {
-  movieDirectory: null,
-  seriesDirectory: null,
   movieFileFormat: "{Movie Title} ({Release Year})",
   seriesFileFormat:
     "{Series Title}/Season {season:00}/{Series Title} - S{season:00}E{episode:00} - {Episode Title}",
@@ -118,39 +401,236 @@ const DEFAULT_SETTINGS: FileSettings = {
   autoRenameWarningShown: false,
   // Download Watcher defaults
   downloadWatcherEnabled: false,
+  movieWatcherEnabled: true,
+  seriesWatcherEnabled: true,
   movieDownloadDirectory: null,
   seriesDownloadDirectory: null,
   movieWatcherDestination: null,
   seriesWatcherDestination: null,
   watcherInterval: 30,
-  watcherAutoApprove: false,
-  completedDownloadHandlingEnabled: true,
-  completedDownloadHandlingImportEnabled: true,
-  completedDownloadCheckInterval: 60,
-  completedDownloadImportMode: "hardlink",
-  completedDownloadRemoveFromClient: false,
+  watcherAutoApprove: true,
+  movieNamingScanTarget: "media",
+  movieNamingUseFolders: false,
+  movieRenameCleanupReleaseFolder: false,
+  seriesNamingScanTarget: "media",
+  movieApplyNamingOnWatcherApprove: true,
+  seriesApplyNamingOnWatcherApprove: true,
+  movieApplyNamingOnAutomaticMove: false,
+  seriesApplyNamingOnAutomaticMove: false,
+  movieWatcherDownloadMode: "saved",
+  movieWatcherMediaMode: "saved",
+  movieWatcherCustomDownloadDirectory: null,
+  movieWatcherCustomMediaDirectory: null,
+  seriesWatcherDownloadMode: "saved",
+  seriesWatcherMediaMode: "saved",
+  seriesWatcherCustomDownloadDirectory: null,
+  seriesWatcherCustomMediaDirectory: null,
+  anomalyDetectorAutoScanEnabled: false,
+  anomalyDetectorScanInterval: 1800,
+  anomalyDetectorScanDirKey: "movieMedia",
+  anomalyDetectorCustomScanPath: null,
+  anomalyDetectorCheckDuplicates: true,
+  anomalyDetectorCheckCorruption: false,
+  anomalyDetectorCheckLargeFiles: false,
 };
+
+const selectFieldClass =
+  "w-full rounded-lg border border-content3 bg-content1 px-3 py-2 text-sm";
+
+const AUTO_SAVE_MS = 900;
+
+const SETTING_SAVE_LABELS: Record<string, string> = {
+  movieFileFormat: "Movie file format",
+  seriesFileFormat: "Series file format",
+  movieNamingScanTarget: "Movie scan folder",
+  seriesNamingScanTarget: "Series scan folder",
+  movieNamingUseFolders: "Subfolder per movie",
+  movieRenameCleanupReleaseFolder: "Delete release junk",
+  movieApplyNamingOnWatcherApprove: "Movie naming on approve",
+  seriesApplyNamingOnWatcherApprove: "Series naming on approve",
+  movieApplyNamingOnAutomaticMove: "Movie naming on auto-move",
+  seriesApplyNamingOnAutomaticMove: "Series naming on auto-move",
+  downloadWatcherEnabled: "Automatic watch & move",
+  movieWatcherEnabled: "Movies in Watch & Move",
+  seriesWatcherEnabled: "Series in Watch & Move",
+  movieDownloadDirectory: "Movie download folder",
+  seriesDownloadDirectory: "Series download folder",
+  movieWatcherDestination: "Movie media folder",
+  seriesWatcherDestination: "Series media folder",
+  watcherInterval: "Watcher interval",
+  watcherAutoApprove: "Watcher auto-approve",
+  movieWatcherDownloadMode: "Movie download path mode",
+  movieWatcherMediaMode: "Movie media path mode",
+  movieWatcherCustomDownloadDirectory: "Custom movie download path",
+  movieWatcherCustomMediaDirectory: "Custom movie media path",
+  seriesWatcherDownloadMode: "Series download path mode",
+  seriesWatcherMediaMode: "Series media path mode",
+  seriesWatcherCustomDownloadDirectory: "Custom Series download path",
+  seriesWatcherCustomMediaDirectory: "Custom Series media path",
+  anomalyDetectorAutoScanEnabled: "Anomaly auto-scan",
+  anomalyDetectorScanInterval: "Anomaly scan interval",
+  anomalyDetectorScanDirKey: "Anomaly scan folder",
+  anomalyDetectorCustomScanPath: "Anomaly custom scan path",
+  anomalyDetectorCheckDuplicates: "Anomaly duplicate check",
+  anomalyDetectorCheckCorruption: "Anomaly corruption check",
+  anomalyDetectorCheckLargeFiles: "Anomaly large-file check",
+};
+
+function buildSettingsPayload(settings: FileSettings) {
+  return {
+    ...settings,
+    downloadWatcherEnabled: settings.downloadWatcherEnabled ?? false,
+    movieWatcherEnabled: settings.movieWatcherEnabled ?? true,
+    seriesWatcherEnabled: settings.seriesWatcherEnabled ?? true,
+    movieDownloadDirectory: settings.movieDownloadDirectory || null,
+    seriesDownloadDirectory: settings.seriesDownloadDirectory || null,
+    movieWatcherDestination: settings.movieWatcherDestination || null,
+    seriesWatcherDestination: settings.seriesWatcherDestination || null,
+    watcherInterval: settings.watcherInterval || 30,
+    watcherAutoApprove: settings.watcherAutoApprove ?? false,
+    movieWatcherDownloadMode: settings.movieWatcherDownloadMode || "saved",
+    movieWatcherMediaMode: settings.movieWatcherMediaMode || "saved",
+    movieWatcherCustomDownloadDirectory:
+      settings.movieWatcherCustomDownloadDirectory || null,
+    movieWatcherCustomMediaDirectory:
+      settings.movieWatcherCustomMediaDirectory || null,
+    seriesWatcherDownloadMode: settings.seriesWatcherDownloadMode || "saved",
+    seriesWatcherMediaMode: settings.seriesWatcherMediaMode || "saved",
+    seriesWatcherCustomDownloadDirectory:
+      settings.seriesWatcherCustomDownloadDirectory || null,
+    seriesWatcherCustomMediaDirectory:
+      settings.seriesWatcherCustomMediaDirectory || null,
+    movieDirectory: settings.movieWatcherDestination || null,
+    seriesDirectory: settings.seriesWatcherDestination || null,
+    movieFileFormat:
+      settings.movieFileFormat || DEFAULT_SETTINGS.movieFileFormat,
+    seriesFileFormat:
+      settings.seriesFileFormat || DEFAULT_SETTINGS.seriesFileFormat,
+    movieNamingScanTarget: settings.movieNamingScanTarget || "media",
+    movieNamingUseFolders: settings.movieNamingUseFolders === true,
+    movieRenameCleanupReleaseFolder:
+      settings.movieRenameCleanupReleaseFolder === true,
+    seriesNamingScanTarget: settings.seriesNamingScanTarget || "media",
+    movieApplyNamingOnWatcherApprove:
+      settings.movieApplyNamingOnWatcherApprove ?? true,
+    seriesApplyNamingOnWatcherApprove:
+      settings.seriesApplyNamingOnWatcherApprove ?? true,
+    movieApplyNamingOnAutomaticMove:
+      settings.movieApplyNamingOnAutomaticMove ?? false,
+    seriesApplyNamingOnAutomaticMove:
+      settings.seriesApplyNamingOnAutomaticMove ?? false,
+    anomalyDetectorAutoScanEnabled:
+      settings.anomalyDetectorAutoScanEnabled === true,
+    anomalyDetectorScanInterval: settings.anomalyDetectorScanInterval || 1800,
+    anomalyDetectorScanDirKey:
+      settings.anomalyDetectorScanDirKey || "movieMedia",
+    anomalyDetectorCustomScanPath:
+      settings.anomalyDetectorCustomScanPath || null,
+    anomalyDetectorCheckDuplicates:
+      settings.anomalyDetectorCheckDuplicates !== false,
+    anomalyDetectorCheckCorruption:
+      settings.anomalyDetectorCheckCorruption === true,
+    anomalyDetectorCheckLargeFiles:
+      settings.anomalyDetectorCheckLargeFiles === true,
+    autoRename: false,
+    autoRenameInterval: 60,
+    autoRenameWarningShown: true,
+    completedDownloadHandlingEnabled: false,
+    completedDownloadHandlingImportEnabled: false,
+  };
+}
+
+function saveLabelForChangedKeys(keys: string[]): string {
+  if (keys.length === 1) {
+    return SETTING_SAVE_LABELS[keys[0]] || keys[0];
+  }
+  if (keys.length === 2) {
+    return keys.map((k) => SETTING_SAVE_LABELS[k] || k).join(", ");
+  }
+  return `${keys.length} settings`;
+}
+
+function truncatePath(path: string | null, max = 52) {
+  if (!path) return "";
+  if (path.length <= max) return path;
+  const head = Math.floor((max - 1) / 2);
+  const tail = max - 1 - head;
+  return `${path.slice(0, head)}…${path.slice(-tail)}`;
+}
+
+function effectiveWatcherDownload(
+  settings: FileSettings,
+  kind: "movie" | "series",
+) {
+  if (kind === "movie") {
+    if (
+      settings.movieWatcherDownloadMode === "custom" &&
+      settings.movieWatcherCustomDownloadDirectory
+    ) {
+      return settings.movieWatcherCustomDownloadDirectory;
+    }
+    return settings.movieDownloadDirectory;
+  }
+  if (
+    settings.seriesWatcherDownloadMode === "custom" &&
+    settings.seriesWatcherCustomDownloadDirectory
+  ) {
+    return settings.seriesWatcherCustomDownloadDirectory;
+  }
+  return settings.seriesDownloadDirectory;
+}
+
+function savedMediaFolder(
+  settings: FileSettings,
+  kind: "movie" | "series",
+): string | null {
+  return kind === "movie"
+    ? settings.movieWatcherDestination
+    : settings.seriesWatcherDestination;
+}
+
+function effectiveWatcherMedia(
+  settings: FileSettings,
+  kind: "movie" | "series",
+) {
+  if (kind === "movie") {
+    if (
+      settings.movieWatcherMediaMode === "custom" &&
+      settings.movieWatcherCustomMediaDirectory
+    ) {
+      return settings.movieWatcherCustomMediaDirectory;
+    }
+    return settings.movieWatcherDestination;
+  }
+  if (
+    settings.seriesWatcherMediaMode === "custom" &&
+    settings.seriesWatcherCustomMediaDirectory
+  ) {
+    return settings.seriesWatcherCustomMediaDirectory;
+  }
+  return settings.seriesWatcherDestination;
+}
 
 const FileManagement = () => {
   const { user } = useAuth();
 
   const [settings, setSettings] = useState<FileSettings>(DEFAULT_SETTINGS);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const settingsBaselineRef = useRef<string | null>(null);
+  const settingsHydratedRef = useRef(false);
+  const skipNextAutoSaveRef = useRef(false);
+  const saveInFlightRef = useRef(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const renameBatchPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const batchCompletionHandledRef = useRef(false);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
-
-  // Directory testing state
-  const [testingMovieDir, setTestingMovieDir] = useState(false);
-  const [testingSeriesDir, setTestingSeriesDir] = useState(false);
-  const [movieDirStatus, setMovieDirStatus] = useState<
-    "untested" | "success" | "error"
-  >("untested");
-  const [seriesDirStatus, setSeriesDirStatus] = useState<
-    "untested" | "success" | "error"
-  >("untested");
 
   // Import state
   const [importingMovies, setImportingMovies] = useState(false);
@@ -159,52 +639,59 @@ const FileManagement = () => {
   // Rename preview state
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renamePreview, setRenamePreview] = useState<RenameItem[]>([]);
+  const [renamePreviewSearch, setRenamePreviewSearch] = useState("");
+  const [activityLogRefresh, setActivityLogRefresh] = useState(0);
+  const [renamePreviewStats, setRenamePreviewStats] = useState<{
+    movies: RenamePreviewStats | null;
+    series: RenamePreviewStats | null;
+  }>({ movies: null, series: null });
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [renameType, setRenameType] = useState<"movies" | "series" | "bulk">(
-    "bulk",
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renameType, setRenameType] = useState<"movies" | "series">("movies");
+  const [renameBatchProgress, setRenameBatchProgress] = useState<{
+    done: number;
+    total: number;
+    success: number;
+    failed: number;
+    activeNames: string[];
+    mediaKind: "movies" | "series";
+  } | null>(null);
+
+  const filteredRenamePreview = useMemo(
+    () =>
+      renamePreview.filter((item) =>
+        matchesRenamePreviewSearch(item, renamePreviewSearch),
+      ),
+    [renamePreview, renamePreviewSearch],
   );
+
+  const renamePreviewNoConflictCount = useMemo(
+    () => renamePreview.filter((r) => !r.needsReview).length,
+    [renamePreview],
+  );
+
+  const [tmdbPickItem, setTmdbPickItem] = useState<RenameItem | null>(null);
+  const [applyingTmdb, setApplyingTmdb] = useState(false);
 
   // Section expansion state
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set([
-      "directories",
-      "downloadWatcher",
-      "completedDownloads",
-      "movieNaming",
-      "seriesNaming",
-      "autoRename",
-    ]),
+    () => new Set(),
   );
 
-  // Beta warning modal state
-  const [showBetaWarning, setShowBetaWarning] = useState(false);
-  const [pendingAutoRenameEnable, setPendingAutoRenameEnable] = useState(false);
-
-  const [cdhStatus, setCdhStatus] = useState<{
-    activeDownloads: number;
-    awaitingImport: number;
-    importMode: string;
-    checkIntervalSeconds: number;
-  } | null>(null);
-  const [refreshingCdh, setRefreshingCdh] = useState(false);
-
-  // Download Watcher state
-  const [watcherStatus, setWatcherStatus] = useState<{
-    isRunning: boolean;
-    stats: WatcherStats;
-  }>({
-    isRunning: false,
-    stats: {
-      lastRun: null,
-      filesProcessed: 0,
-      moviesProcessed: 0,
-      seriesProcessed: 0,
-      errors: 0,
-      recentFiles: [],
-    },
-  });
+  const [watchMoveLogRefresh, setWatchMoveLogRefresh] = useState(0);
   const [triggeringWatcher, setTriggeringWatcher] = useState(false);
+  const [previewingWatcher, setPreviewingWatcher] = useState(false);
+  const [watcherPreviewOpen, setWatcherPreviewOpen] = useState(false);
+  const [watcherPreviewReady, setWatcherPreviewReady] = useState<
+    WatcherPreviewItem[]
+  >([]);
+  const [watcherPreviewSkipped, setWatcherPreviewSkipped] = useState<
+    WatcherSkippedItem[]
+  >([]);
+  const [watcherPreviewMessage, setWatcherPreviewMessage] = useState("");
+  const [watcherPreviewAutoApprove, setWatcherPreviewAutoApprove] =
+    useState(false);
   const [testingMovieDownloadDir, setTestingMovieDownloadDir] = useState(false);
   const [testingSeriesDownloadDir, setTestingSeriesDownloadDir] =
     useState(false);
@@ -255,34 +742,188 @@ const FileManagement = () => {
   useEffect(() => {
     if (user) {
       fetchSettings();
-      fetchWatcherStatus();
-      fetchCdhStatus();
     }
   }, [user]);
 
   useEffect(() => {
-    if (settings.completedDownloadHandlingEnabled) {
-      const interval = setInterval(fetchCdhStatus, 15000);
-      return () => clearInterval(interval);
-    }
-  }, [settings.completedDownloadHandlingEnabled]);
-
-  // Periodically refresh watcher status when enabled
-  useEffect(() => {
-    if (settings.downloadWatcherEnabled) {
-      const interval = setInterval(fetchWatcherStatus, 10000);
-      return () => clearInterval(interval);
-    }
+    if (!settings.downloadWatcherEnabled) return;
+    const id = setInterval(() => setWatchMoveLogRefresh((n) => n + 1), 15000);
+    return () => clearInterval(id);
   }, [settings.downloadWatcherEnabled]);
 
-  // Fetch pending files when watcher is enabled and manual approval is on
+  // Pending queue when manual approval is on (no background watcher required)
   useEffect(() => {
-    if (settings.downloadWatcherEnabled && !settings.watcherAutoApprove) {
+    if (!settings.watcherAutoApprove) {
       fetchPendingFiles();
       const interval = setInterval(fetchPendingFiles, 5000);
       return () => clearInterval(interval);
     }
-  }, [settings.downloadWatcherEnabled, settings.watcherAutoApprove]);
+  }, [settings.watcherAutoApprove]);
+
+  const hasWatcherPathPair = Boolean(
+    (settings.movieWatcherEnabled !== false &&
+      effectiveWatcherDownload(settings, "movie") &&
+      effectiveWatcherMedia(settings, "movie")) ||
+      (settings.seriesWatcherEnabled !== false &&
+        effectiveWatcherDownload(settings, "series") &&
+        effectiveWatcherMedia(settings, "series")),
+  );
+
+  const watcherPathsPayload = () => ({
+    movieDownloadDirectory: settings.movieDownloadDirectory || null,
+    seriesDownloadDirectory: settings.seriesDownloadDirectory || null,
+    movieWatcherDestination: settings.movieWatcherDestination || null,
+    seriesWatcherDestination: settings.seriesWatcherDestination || null,
+    movieWatcherDownloadMode: settings.movieWatcherDownloadMode || "saved",
+    movieWatcherMediaMode: settings.movieWatcherMediaMode || "saved",
+    movieWatcherCustomDownloadDirectory:
+      settings.movieWatcherCustomDownloadDirectory || null,
+    movieWatcherCustomMediaDirectory:
+      settings.movieWatcherCustomMediaDirectory || null,
+    seriesWatcherDownloadMode: settings.seriesWatcherDownloadMode || "saved",
+    seriesWatcherMediaMode: settings.seriesWatcherMediaMode || "saved",
+    seriesWatcherCustomDownloadDirectory:
+      settings.seriesWatcherCustomDownloadDirectory || null,
+    seriesWatcherCustomMediaDirectory:
+      settings.seriesWatcherCustomMediaDirectory || null,
+    watcherAutoApprove: settings.watcherAutoApprove ?? false,
+    movieApplyNamingOnWatcherApprove:
+      settings.movieApplyNamingOnWatcherApprove ?? true,
+    seriesApplyNamingOnWatcherApprove:
+      settings.seriesApplyNamingOnWatcherApprove ?? true,
+    movieApplyNamingOnAutomaticMove:
+      settings.movieApplyNamingOnAutomaticMove ?? false,
+    seriesApplyNamingOnAutomaticMove:
+      settings.seriesApplyNamingOnAutomaticMove ?? false,
+    movieWatcherEnabled: settings.movieWatcherEnabled ?? true,
+    seriesWatcherEnabled: settings.seriesWatcherEnabled ?? true,
+  });
+
+  const movieNamingScanPath = () =>
+    (settings.movieNamingScanTarget ?? "media") === "download"
+      ? settings.movieDownloadDirectory
+      : settings.movieWatcherDestination;
+
+  const seriesNamingScanPath = () =>
+    (settings.seriesNamingScanTarget ?? "media") === "download"
+      ? settings.seriesDownloadDirectory
+      : settings.seriesWatcherDestination;
+
+  const applyMovieFormatTokensToSample = (format: string) => {
+    let name = format.trim();
+    const s = FILE_NAMING_EXAMPLES;
+    name = name.replace(/\{\[([^\]]+)\]\}/g, (_, token) => {
+      const key = token.trim();
+      if (key === "Quality" && s.quality) return `[${s.quality}]`;
+      return "";
+    });
+    name = name.replace(/\{Quality\}/gi, s.quality);
+    name = name.replace(/\{Movie Title\}/gi, s.movieTitle);
+    name = name.replace(/\{Movie CleanTitle\}/gi, s.movieTitle);
+    name = name.replace(/\{Release Year\}/gi, s.releaseYear);
+    name = name.replace(/\{Source\}/gi, s.source);
+    name = name.replace(/\{Codec\}/gi, s.codec);
+    name = name.replace(/\{Release Group\}/gi, s.releaseGroup);
+    name = name.replace(/\{[^}]+\}/g, "");
+    return name.replace(/\s+/g, " ").trim();
+  };
+
+  const applySeriesFormatTokensToSample = (format: string) => {
+    let name = format.trim();
+    const s = FILE_NAMING_EXAMPLES;
+    name = name.replace(/\{\[([^\]]+)\]\}/g, (_, token) => {
+      const key = token.trim();
+      if (key === "Quality" && s.quality) return `[${s.quality}]`;
+      return "";
+    });
+    name = name.replace(/\{Series Title\}/gi, s.seriesTitle);
+    name = name.replace(/\{Episode Title\}/gi, s.episodeTitle);
+    name = name.replace(/\{season:00\}/gi, s.seasonPadded);
+    name = name.replace(/\{episode:00\}/gi, s.episodePadded);
+    name = name.replace(/\{Quality\}/gi, s.quality);
+    name = name.replace(/\{Codec\}/gi, s.codec);
+    name = name.replace(/\{[^}]+\}/g, "");
+    return name.replace(/\s+/g, " ").trim();
+  };
+
+  const buildMovieNamingExampleBase = () =>
+    applyMovieFormatTokensToSample(
+      settings.movieFileFormat?.trim() || DEFAULT_SETTINGS.movieFileFormat,
+    );
+
+  const movieNamingLayoutExample = () => {
+    const base = buildMovieNamingExampleBase();
+    const scanRoot = movieNamingScanPath() || "…/your/movie/folder";
+    const file = `${base}.${FILE_NAMING_EXAMPLES.ext}`;
+    if (settings.movieNamingUseFolders) {
+      return `${scanRoot}/${base}/${file}`;
+    }
+    return `${scanRoot}/${file}`;
+  };
+
+  const movieFormatSelection = useRef({ start: 0, end: 0 });
+  const seriesFormatSelection = useRef({ start: 0, end: 0 });
+
+  const syncFormatInputSelection = (
+    e: React.SyntheticEvent<HTMLInputElement>,
+    target: React.MutableRefObject<{ start: number; end: number }>,
+  ) => {
+    const input = e.currentTarget;
+    target.current = {
+      start: input.selectionStart ?? 0,
+      end: input.selectionEnd ?? 0,
+    };
+  };
+
+  const insertFormatToken = (
+    field: "movieFileFormat" | "seriesFileFormat",
+    token: string,
+    selectionRef: React.MutableRefObject<{ start: number; end: number }>,
+    inputId: string,
+  ) => {
+    const current =
+      field === "movieFileFormat"
+        ? settings.movieFileFormat
+        : settings.seriesFileFormat;
+    const inputEl = document.getElementById(inputId) as HTMLInputElement | null;
+    const atCursor =
+      inputEl && document.activeElement === inputEl
+        ? selectionRef.current
+        : { start: current.length, end: current.length };
+    const { start, end } = atCursor;
+    const next = current.slice(0, start) + token + current.slice(end);
+    const caret = start + token.length;
+    selectionRef.current = { start: caret, end: caret };
+    setSettings({ ...settings, [field]: next });
+    requestAnimationFrame(() => {
+      const el = document.getElementById(inputId) as HTMLInputElement | null;
+      el?.focus();
+      el?.setSelectionRange(caret, caret);
+    });
+  };
+
+  const formatBytes = (bytes?: number) => {
+    if (bytes == null) return "";
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024)
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  };
+
+  const skipReasonLabel = (reason: string) => {
+    switch (reason) {
+      case "still_downloading":
+        return "Still downloading (file size changing)";
+      case "no_videos":
+        return "No video files in folder";
+      case "already_pending":
+        return "Already in approval queue";
+      case "source_not_accessible":
+        return "Download folder not accessible";
+      default:
+        return reason;
+    }
+  };
 
   const fetchSettings = async () => {
     try {
@@ -296,10 +937,6 @@ const FileManagement = () => {
         ...DEFAULT_SETTINGS,
         ...response.data,
         // Preserve null values for directories (don't overwrite with defaults)
-        movieDirectory:
-          response.data.movieDirectory ?? DEFAULT_SETTINGS.movieDirectory,
-        seriesDirectory:
-          response.data.seriesDirectory ?? DEFAULT_SETTINGS.seriesDirectory,
         movieDownloadDirectory:
           response.data.movieDownloadDirectory ??
           DEFAULT_SETTINGS.movieDownloadDirectory,
@@ -308,27 +945,82 @@ const FileManagement = () => {
           DEFAULT_SETTINGS.seriesDownloadDirectory,
         movieWatcherDestination:
           response.data.movieWatcherDestination ??
+          response.data.movieDirectory ??
           DEFAULT_SETTINGS.movieWatcherDestination,
         seriesWatcherDestination:
           response.data.seriesWatcherDestination ??
+          response.data.seriesDirectory ??
           DEFAULT_SETTINGS.seriesWatcherDestination,
         // Ensure boolean fields are properly set
         downloadWatcherEnabled: response.data.downloadWatcherEnabled ?? false,
+        movieWatcherEnabled: response.data.movieWatcherEnabled ?? true,
+        seriesWatcherEnabled: response.data.seriesWatcherEnabled ?? true,
         watcherAutoApprove: response.data.watcherAutoApprove ?? false,
+        movieNamingScanTarget:
+          response.data.movieNamingScanTarget === "download"
+            ? "download"
+            : "media",
+        movieNamingUseFolders: response.data.movieNamingUseFolders === true,
+        movieRenameCleanupReleaseFolder:
+          response.data.movieRenameCleanupReleaseFolder === true,
+        seriesNamingScanTarget:
+          response.data.seriesNamingScanTarget === "download"
+            ? "download"
+            : "media",
+        movieApplyNamingOnWatcherApprove:
+          response.data.movieApplyNamingOnWatcherApprove ??
+          response.data.applyNamingOnWatcherApprove ??
+          true,
+        seriesApplyNamingOnWatcherApprove:
+          response.data.seriesApplyNamingOnWatcherApprove ??
+          response.data.applyNamingOnWatcherApprove ??
+          true,
+        movieApplyNamingOnAutomaticMove:
+          response.data.movieApplyNamingOnAutomaticMove ??
+          response.data.applyNamingOnAutomaticMove ??
+          false,
+        seriesApplyNamingOnAutomaticMove:
+          response.data.seriesApplyNamingOnAutomaticMove ??
+          response.data.applyNamingOnAutomaticMove ??
+          false,
         autoRename: response.data.autoRename ?? false,
         // Ensure numeric fields have defaults
         watcherInterval: response.data.watcherInterval ?? 30,
         autoRenameInterval: response.data.autoRenameInterval ?? 60,
-        completedDownloadHandlingEnabled:
-          response.data.completedDownloadHandlingEnabled ?? true,
-        completedDownloadHandlingImportEnabled:
-          response.data.completedDownloadHandlingImportEnabled ?? true,
-        completedDownloadCheckInterval:
-          response.data.completedDownloadCheckInterval ?? 60,
-        completedDownloadImportMode:
-          response.data.completedDownloadImportMode ?? "hardlink",
-        completedDownloadRemoveFromClient:
-          response.data.completedDownloadRemoveFromClient ?? false,
+        movieWatcherDownloadMode:
+          response.data.movieWatcherDownloadMode === "custom"
+            ? "custom"
+            : "saved",
+        movieWatcherMediaMode:
+          response.data.movieWatcherMediaMode === "custom" ? "custom" : "saved",
+        movieWatcherCustomDownloadDirectory:
+          response.data.movieWatcherCustomDownloadDirectory ?? null,
+        movieWatcherCustomMediaDirectory:
+          response.data.movieWatcherCustomMediaDirectory ?? null,
+        seriesWatcherDownloadMode:
+          response.data.seriesWatcherDownloadMode === "custom"
+            ? "custom"
+            : "saved",
+        seriesWatcherMediaMode:
+          response.data.seriesWatcherMediaMode === "custom" ? "custom" : "saved",
+        seriesWatcherCustomDownloadDirectory:
+          response.data.seriesWatcherCustomDownloadDirectory ?? null,
+        seriesWatcherCustomMediaDirectory:
+          response.data.seriesWatcherCustomMediaDirectory ?? null,
+        anomalyDetectorAutoScanEnabled:
+          response.data.anomalyDetectorAutoScanEnabled === true,
+        anomalyDetectorScanInterval:
+          response.data.anomalyDetectorScanInterval ?? 1800,
+        anomalyDetectorScanDirKey:
+          response.data.anomalyDetectorScanDirKey || "movieMedia",
+        anomalyDetectorCustomScanPath:
+          response.data.anomalyDetectorCustomScanPath ?? null,
+        anomalyDetectorCheckDuplicates:
+          response.data.anomalyDetectorCheckDuplicates !== false,
+        anomalyDetectorCheckCorruption:
+          response.data.anomalyDetectorCheckCorruption === true,
+        anomalyDetectorCheckLargeFiles:
+          response.data.anomalyDetectorCheckLargeFiles === true,
       };
 
       setSettings(loadedSettings);
@@ -342,64 +1034,6 @@ const FileManagement = () => {
         text: "Failed to load settings. Using defaults.",
       });
       setLoading(false);
-    }
-  };
-
-  const fetchCdhStatus = async () => {
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await axios.get(
-        `${API_BASE_URL}/api/CompletedDownloads/status`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      setCdhStatus({
-        activeDownloads: response.data.activeDownloads ?? 0,
-        awaitingImport: response.data.awaitingImport ?? 0,
-        importMode: response.data.importMode ?? "hardlink",
-        checkIntervalSeconds: response.data.checkIntervalSeconds ?? 60,
-      });
-    } catch (error) {
-      console.error("Error fetching CDH status:", error);
-    }
-  };
-
-  const triggerCdhRefresh = async () => {
-    setRefreshingCdh(true);
-    try {
-      const token = localStorage.getItem("accessToken");
-      await axios.post(
-        `${API_BASE_URL}/api/CompletedDownloads/refresh`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      await fetchCdhStatus();
-      setMessage({
-        type: "success",
-        text: "Polled download clients for tracked grabs",
-      });
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error: any) {
-      setMessage({
-        type: "error",
-        text: error.response?.data?.error || "CDH refresh failed",
-      });
-    } finally {
-      setRefreshingCdh(false);
-    }
-  };
-
-  const fetchWatcherStatus = async () => {
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await axios.get(
-        `${API_BASE_URL}/api/Settings/download-watcher/status`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-      setWatcherStatus(response.data);
-    } catch (error) {
-      console.error("Error fetching watcher status:", error);
     }
   };
 
@@ -429,7 +1063,7 @@ const FileManagement = () => {
       );
       setMessage({ type: "success", text: "File moved successfully!" });
       fetchPendingFiles();
-      fetchWatcherStatus();
+      setWatchMoveLogRefresh((n) => n + 1);
     } catch (error: any) {
       console.error("Error approving file:", error);
       setMessage({
@@ -453,6 +1087,7 @@ const FileManagement = () => {
       );
       setMessage({ type: "success", text: "File ignored" });
       fetchPendingFiles();
+      setWatchMoveLogRefresh((n) => n + 1);
     } catch (error: any) {
       console.error("Error rejecting file:", error);
       setMessage({
@@ -471,23 +1106,80 @@ const FileManagement = () => {
     }
   };
 
+  const previewWatcherMoves = async () => {
+    if (!hasWatcherPathPair) {
+      setInfoModal({
+        isOpen: true,
+        title: "Paths required",
+        message:
+          "Set at least one download folder and matching media folder before previewing.",
+        type: "warning",
+      });
+      return;
+    }
+
+    setPreviewingWatcher(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const response = await axios.post(
+        `${API_BASE_URL}/api/Settings/download-watcher/preview`,
+        watcherPathsPayload(),
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      if (response.data.success) {
+        setWatcherPreviewReady(response.data.ready || []);
+        setWatcherPreviewSkipped(response.data.skipped || []);
+        setWatcherPreviewMessage(response.data.message || "");
+        setWatcherPreviewAutoApprove(!!response.data.autoApprove);
+        setWatcherPreviewOpen(true);
+      } else {
+        setMessage({
+          type: "error",
+          text: response.data.message || "Preview failed",
+        });
+      }
+    } catch (error: any) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "Failed to preview moves",
+      });
+    } finally {
+      setPreviewingWatcher(false);
+      setTimeout(() => setMessage(null), 4000);
+    }
+  };
+
   const triggerWatcherScan = async () => {
+    if (!hasWatcherPathPair) {
+      setInfoModal({
+        isOpen: true,
+        title: "Paths required",
+        message:
+          "Set at least one download folder and matching media folder, or run scan with current paths.",
+        type: "warning",
+      });
+      return;
+    }
+
     setTriggeringWatcher(true);
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.post(
         `${API_BASE_URL}/api/Settings/download-watcher/trigger`,
-        {},
+        watcherPathsPayload(),
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
       if (response.data.success) {
         setMessage({
           type: "success",
-          text: "Download watcher scan triggered successfully!",
+          text: response.data.message || "Scan completed",
         });
-        // Refresh status after scan
-        await fetchWatcherStatus();
+        setWatchMoveLogRefresh((n) => n + 1);
+        if (!settings.watcherAutoApprove) {
+          await fetchPendingFiles();
+        }
       } else {
         setMessage({
           type: "error",
@@ -502,212 +1194,322 @@ const FileManagement = () => {
       });
     } finally {
       setTriggeringWatcher(false);
-      setTimeout(() => setMessage(null), 3000);
+      setTimeout(() => setMessage(null), 5000);
     }
   };
 
-  const testDownloadDirectory = async (type: "movie" | "series") => {
-    const directory =
-      type === "movie"
-        ? settings.movieDownloadDirectory
-        : settings.seriesDownloadDirectory;
+  const testDownloadDirectory = useCallback(
+    async (
+      type: "movie" | "series",
+      directoryOverride?: string | null,
+      options?: { quiet?: boolean },
+    ) => {
+      const quiet = options?.quiet ?? false;
+      const directory =
+        directoryOverride ??
+        (type === "movie"
+          ? settings.movieDownloadDirectory
+          : settings.seriesDownloadDirectory);
 
-    if (!directory) {
-      setInfoModal({
-        isOpen: true,
-        title: "No Directory",
-        message: `Please enter a ${type} download directory first.`,
-        type: "warning",
-      });
+      if (!directory || !String(directory).trim()) {
+        if (!quiet) {
+          setInfoModal({
+            isOpen: true,
+            title: "No Directory",
+            message: `Please enter a ${type} download directory first.`,
+            type: "warning",
+          });
+        }
+        return;
+      }
+
+      if (type === "movie") {
+        setTestingMovieDownloadDir(true);
+        setMovieDownloadDirStatus("untested");
+      } else {
+        setTestingSeriesDownloadDir(true);
+        setSeriesDownloadDirStatus("untested");
+      }
+
+      try {
+        const token = localStorage.getItem("accessToken");
+        const response = await axios.post(
+          `${API_BASE_URL}/api/Settings/test-directory`,
+          { directory },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        if (response.data.accessible) {
+          if (type === "movie") {
+            setMovieDownloadDirStatus("success");
+          } else {
+            setSeriesDownloadDirStatus("success");
+          }
+          if (!quiet) {
+            setMessage({
+              type: "success",
+              text: `${type === "movie" ? "Movie" : "Series"} download folder is accessible`,
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error("Error testing directory:", error);
+        if (type === "movie") {
+          setMovieDownloadDirStatus("error");
+        } else {
+          setSeriesDownloadDirStatus("error");
+        }
+        if (!quiet) {
+          const errorMsg =
+            error.response?.data?.error ||
+            `Failed to access ${type} download folder`;
+          setMessage({ type: "error", text: errorMsg });
+        }
+      } finally {
+        if (type === "movie") {
+          setTestingMovieDownloadDir(false);
+        } else {
+          setTestingSeriesDownloadDir(false);
+        }
+        if (!quiet) {
+          setTimeout(() => setMessage(null), 3000);
+        }
+      }
+    },
+    [
+      settings.movieDownloadDirectory,
+      settings.seriesDownloadDirectory,
+    ],
+  );
+
+  const testWatcherDestination = useCallback(
+    async (
+      type: "movie" | "series",
+      directoryOverride?: string | null,
+      options?: { quiet?: boolean },
+    ) => {
+      const quiet = options?.quiet ?? false;
+      const directory =
+        directoryOverride ??
+        (type === "movie"
+          ? settings.movieWatcherDestination
+          : settings.seriesWatcherDestination);
+
+      if (!directory || !String(directory).trim()) {
+        if (!quiet) {
+          setInfoModal({
+            isOpen: true,
+            title: "No Directory",
+            message: `Please enter a ${type} media folder first.`,
+            type: "warning",
+          });
+        }
+        return;
+      }
+
+      if (type === "movie") {
+        setTestingMovieWatcherDest(true);
+        setMovieWatcherDestStatus("untested");
+      } else {
+        setTestingSeriesWatcherDest(true);
+        setSeriesWatcherDestStatus("untested");
+      }
+
+      try {
+        const token = localStorage.getItem("accessToken");
+        const response = await axios.post(
+          `${API_BASE_URL}/api/Settings/test-directory`,
+          { directory },
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        if (response.data.accessible) {
+          if (type === "movie") {
+            setMovieWatcherDestStatus("success");
+          } else {
+            setSeriesWatcherDestStatus("success");
+          }
+          if (!quiet) {
+            setMessage({
+              type: "success",
+              text: `${type === "movie" ? "Movie" : "Series"} media folder is accessible`,
+            });
+          }
+        }
+      } catch (error: any) {
+        console.error("Error testing directory:", error);
+        if (type === "movie") {
+          setMovieWatcherDestStatus("error");
+        } else {
+          setSeriesWatcherDestStatus("error");
+        }
+        if (!quiet) {
+          const errorMsg =
+            error.response?.data?.error ||
+            `Failed to access ${type} media folder`;
+          setMessage({ type: "error", text: errorMsg });
+        }
+      } finally {
+        if (type === "movie") {
+          setTestingMovieWatcherDest(false);
+        } else {
+          setTestingSeriesWatcherDest(false);
+        }
+        if (!quiet) {
+          setTimeout(() => setMessage(null), 3000);
+        }
+      }
+    },
+  [
+      settings.movieWatcherDestination,
+      settings.seriesWatcherDestination,
+    ],
+  );
+
+  // Auto-test saved media directory paths when they change (debounced)
+  useEffect(() => {
+    if (loading || !user) return;
+
+    const timer = window.setTimeout(() => {
+      if (settings.movieDownloadDirectory?.trim()) {
+        void testDownloadDirectory(
+          "movie",
+          settings.movieDownloadDirectory,
+          { quiet: true },
+        );
+      }
+      if (settings.movieWatcherDestination?.trim()) {
+        void testWatcherDestination(
+          "movie",
+          settings.movieWatcherDestination,
+          { quiet: true },
+        );
+      }
+      if (settings.seriesDownloadDirectory?.trim()) {
+        void testDownloadDirectory(
+          "series",
+          settings.seriesDownloadDirectory,
+          { quiet: true },
+        );
+      }
+      if (settings.seriesWatcherDestination?.trim()) {
+        void testWatcherDestination(
+          "series",
+          settings.seriesWatcherDestination,
+          { quiet: true },
+        );
+      }
+    }, 650);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    loading,
+    user,
+    settings.movieDownloadDirectory,
+    settings.movieWatcherDestination,
+    settings.seriesDownloadDirectory,
+    settings.seriesWatcherDestination,
+    testDownloadDirectory,
+    testWatcherDestination,
+  ]);
+
+  const persistSettings = useCallback(
+    async (snapshot: FileSettings, label: string) => {
+      if (saveInFlightRef.current) return;
+      saveInFlightRef.current = true;
+      setSaving(true);
+
+      try {
+        const token = localStorage.getItem("accessToken");
+        const response = await axios.put(
+          `${API_BASE_URL}/api/Settings`,
+          buildSettingsPayload(snapshot),
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+
+        const merged = { ...DEFAULT_SETTINGS, ...response.data };
+        skipNextAutoSaveRef.current = true;
+        setSettings(merged);
+        settingsBaselineRef.current = JSON.stringify(merged);
+
+        addToast({
+          title: `Saved ${label}`,
+          color: "secondary",
+          timeout: 2800,
+        });
+
+        if (snapshot.downloadWatcherEnabled) {
+          setWatchMoveLogRefresh((n) => n + 1);
+        }
+      } catch (error: unknown) {
+        console.error("Error saving settings:", error);
+        const errorMsg = axios.isAxiosError(error)
+          ? error.response?.data?.error ||
+            error.response?.data?.message ||
+            "Failed to save settings"
+          : "Failed to save settings";
+        addToast({
+          title: "Save failed",
+          description: String(errorMsg),
+          color: "danger",
+          timeout: 5000,
+        });
+        setMessage({ type: "error", text: String(errorMsg) });
+      } finally {
+        saveInFlightRef.current = false;
+        setSaving(false);
+      }
+    },
+    [],
+  );
+
+  const persistSettingsRef = useRef(persistSettings);
+  persistSettingsRef.current = persistSettings;
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (!settingsHydratedRef.current) {
+      settingsHydratedRef.current = true;
+      settingsBaselineRef.current = JSON.stringify(settings);
       return;
     }
 
-    if (type === "movie") {
-      setTestingMovieDownloadDir(true);
-      setMovieDownloadDirStatus("untested");
-    } else {
-      setTestingSeriesDownloadDir(true);
-      setSeriesDownloadDirStatus("untested");
-    }
-
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await axios.post(
-        `${API_BASE_URL}/api/Settings/test-directory`,
-        { directory },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-
-      if (response.data.accessible) {
-        if (type === "movie") {
-          setMovieDownloadDirStatus("success");
-        } else {
-          setSeriesDownloadDirStatus("success");
-        }
-        setMessage({
-          type: "success",
-          text: `${type === "movie" ? "Movie" : "Series"} download directory is accessible`,
-        });
-      }
-    } catch (error: any) {
-      console.error("Error testing directory:", error);
-      if (type === "movie") {
-        setMovieDownloadDirStatus("error");
-      } else {
-        setSeriesDownloadDirStatus("error");
-      }
-      const errorMsg =
-        error.response?.data?.error ||
-        `Failed to access ${type} download directory`;
-      setMessage({ type: "error", text: errorMsg });
-    } finally {
-      if (type === "movie") {
-        setTestingMovieDownloadDir(false);
-      } else {
-        setTestingSeriesDownloadDir(false);
-      }
-      setTimeout(() => setMessage(null), 3000);
-    }
-  };
-
-  const testWatcherDestination = async (type: "movie" | "series") => {
-    const directory =
-      type === "movie"
-        ? settings.movieWatcherDestination
-        : settings.seriesWatcherDestination;
-
-    if (!directory) {
-      setInfoModal({
-        isOpen: true,
-        title: "No Directory",
-        message: `Please enter a ${type} media folder first.`,
-        type: "warning",
-      });
+    if (skipNextAutoSaveRef.current) {
+      skipNextAutoSaveRef.current = false;
+      settingsBaselineRef.current = JSON.stringify(settings);
       return;
     }
 
-    if (type === "movie") {
-      setTestingMovieWatcherDest(true);
-      setMovieWatcherDestStatus("untested");
-    } else {
-      setTestingSeriesWatcherDest(true);
-      setSeriesWatcherDestStatus("untested");
+    const baseline = settingsBaselineRef.current;
+    if (!baseline) return;
+
+    const currentJson = JSON.stringify(settings);
+    if (currentJson === baseline) return;
+
+    const prev = JSON.parse(baseline) as FileSettings;
+    const changedKeys = (Object.keys(settings) as (keyof FileSettings)[]).filter(
+      (key) =>
+        JSON.stringify(settings[key]) !== JSON.stringify(prev[key]),
+    );
+    if (changedKeys.length === 0) return;
+
+    const label = saveLabelForChangedKeys(changedKeys as string[]);
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
     }
 
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await axios.post(
-        `${API_BASE_URL}/api/Settings/test-directory`,
-        { directory },
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+    autoSaveTimerRef.current = setTimeout(() => {
+      void persistSettingsRef.current(settingsRef.current, label);
+    }, AUTO_SAVE_MS);
 
-      if (response.data.accessible) {
-        if (type === "movie") {
-          setMovieWatcherDestStatus("success");
-        } else {
-          setSeriesWatcherDestStatus("success");
-        }
-        setMessage({
-          type: "success",
-          text: `${type === "movie" ? "Movie" : "Series"} media folder is accessible`,
-        });
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearTimeout(autoSaveTimerRef.current);
       }
-    } catch (error: any) {
-      console.error("Error testing directory:", error);
-      if (type === "movie") {
-        setMovieWatcherDestStatus("error");
-      } else {
-        setSeriesWatcherDestStatus("error");
-      }
-      const errorMsg =
-        error.response?.data?.error || `Failed to access ${type} media folder`;
-      setMessage({ type: "error", text: errorMsg });
-    } finally {
-      if (type === "movie") {
-        setTestingMovieWatcherDest(false);
-      } else {
-        setTestingSeriesWatcherDest(false);
-      }
-      setTimeout(() => setMessage(null), 3000);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage(null);
-
-    try {
-      const token = localStorage.getItem("accessToken");
-
-      // Ensure all download watcher fields are included, even if null
-      const settingsToSave = {
-        ...settings,
-        // Explicitly include all download watcher fields
-        downloadWatcherEnabled: settings.downloadWatcherEnabled ?? false,
-        movieDownloadDirectory: settings.movieDownloadDirectory || null,
-        seriesDownloadDirectory: settings.seriesDownloadDirectory || null,
-        movieWatcherDestination: settings.movieWatcherDestination || null,
-        seriesWatcherDestination: settings.seriesWatcherDestination || null,
-        watcherInterval: settings.watcherInterval || 30,
-        watcherAutoApprove: settings.watcherAutoApprove ?? false,
-        // Include other settings
-        movieDirectory: settings.movieDirectory || null,
-        seriesDirectory: settings.seriesDirectory || null,
-        movieFileFormat:
-          settings.movieFileFormat || DEFAULT_SETTINGS.movieFileFormat,
-        seriesFileFormat:
-          settings.seriesFileFormat || DEFAULT_SETTINGS.seriesFileFormat,
-        autoRename: settings.autoRename ?? false,
-        autoRenameInterval: settings.autoRenameInterval || 60,
-        autoRenameWarningShown: settings.autoRenameWarningShown ?? false,
-        completedDownloadHandlingEnabled:
-          settings.completedDownloadHandlingEnabled ?? true,
-        completedDownloadHandlingImportEnabled:
-          settings.completedDownloadHandlingImportEnabled ?? true,
-        completedDownloadCheckInterval:
-          settings.completedDownloadCheckInterval || 60,
-        completedDownloadImportMode:
-          settings.completedDownloadImportMode || "hardlink",
-        completedDownloadRemoveFromClient:
-          settings.completedDownloadRemoveFromClient ?? false,
-      };
-
-      const response = await axios.put(
-        `${API_BASE_URL}/api/Settings`,
-        settingsToSave,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-
-      // Update local state with the saved settings from server
-      setSettings({ ...DEFAULT_SETTINGS, ...response.data });
-      setMessage({
-        type: "success",
-        text: "Settings saved successfully! Your preferences have been saved.",
-      });
-
-      // Refresh watcher status after saving
-      if (settings.downloadWatcherEnabled) {
-        await fetchWatcherStatus();
-      }
-
-      // Auto-clear success message after 5 seconds
-      setTimeout(() => setMessage(null), 5000);
-    } catch (error: any) {
-      console.error("Error saving settings:", error);
-      const errorMsg =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        "Failed to save settings";
-      setMessage({ type: "error", text: errorMsg });
-      // Keep error message visible longer
-      setTimeout(() => setMessage(null), 5000);
-    } finally {
-      setSaving(false);
-    }
-  };
+    };
+  }, [settings, loading]);
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => {
@@ -721,77 +1523,14 @@ const FileManagement = () => {
     });
   };
 
-  const testDirectory = async (type: "movie" | "series") => {
-    const directory =
-      type === "movie" ? settings.movieDirectory : settings.seriesDirectory;
-
-    if (!directory) {
-      setInfoModal({
-        isOpen: true,
-        title: "No Directory",
-        message: `Please enter a ${type} directory first.`,
-        type: "warning",
-      });
-      return;
-    }
-
-    if (type === "movie") {
-      setTestingMovieDir(true);
-      setMovieDirStatus("untested");
-    } else {
-      setTestingSeriesDir(true);
-      setSeriesDirStatus("untested");
-    }
-
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await axios.post(
-        `${API_BASE_URL}/api/Settings/test-directory`,
-        { directory },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
-
-      if (response.data.accessible) {
-        if (type === "movie") {
-          setMovieDirStatus("success");
-        } else {
-          setSeriesDirStatus("success");
-        }
-        setMessage({
-          type: "success",
-          text: `${type === "movie" ? "Movie" : "Series"} directory is accessible`,
-        });
-      }
-    } catch (error: any) {
-      console.error("Error testing directory:", error);
-      if (type === "movie") {
-        setMovieDirStatus("error");
-      } else {
-        setSeriesDirStatus("error");
-      }
-      const errorMsg =
-        error.response?.data?.error || `Failed to access ${type} directory`;
-      setMessage({ type: "error", text: errorMsg });
-    } finally {
-      if (type === "movie") {
-        setTestingMovieDir(false);
-      } else {
-        setTestingSeriesDir(false);
-      }
-    }
-  };
-
   const importMedia = async (type: "movie" | "series") => {
-    const directory =
-      type === "movie" ? settings.movieDirectory : settings.seriesDirectory;
+    const directory = savedMediaFolder(settings, type);
 
     if (!directory) {
       setInfoModal({
         isOpen: true,
         title: "Configuration Required",
-        message: `Please configure your ${type} directory first!`,
+        message: `Please configure your ${type === "movie" ? "movie" : "Series"} directory first!`,
         type: "error",
       });
       return;
@@ -800,7 +1539,7 @@ const FileManagement = () => {
     setConfirmModal({
       isOpen: true,
       title: `Import ${type === "movie" ? "Movies" : "Series"}`,
-      message: `This will scan your ${type} directory and add all found ${type === "movie" ? "movies" : "TV shows"} to your monitored list.\n\nDirectory: ${directory}\n\nContinue?`,
+      message: `This will scan your ${type === "movie" ? "movie" : "Series"} directory and add all found ${type === "movie" ? "movies" : "Series"} to your monitored list.\n\nDirectory: ${directory}\n\nContinue?`,
       onConfirm: async () => {
         setConfirmModal({ ...confirmModal, isOpen: false });
 
@@ -825,7 +1564,7 @@ const FileManagement = () => {
           const { results } = response.data;
 
           let message = `Import Complete!\n\n`;
-          message += `✅ Imported: ${results.imported} ${type === "movie" ? "movies" : "series"}\n`;
+          message += `✅ Imported: ${results.imported} ${type === "movie" ? "movies" : "Series"}\n`;
           if (results.alreadyMonitored > 0) {
             message += `⏭️ Already monitored: ${results.alreadyMonitored}\n`;
           }
@@ -842,7 +1581,7 @@ const FileManagement = () => {
           });
           setMessage({
             type: "success",
-            text: `Successfully imported ${results.imported} ${type === "movie" ? "movies" : "series"}!`,
+            text: `Successfully imported ${results.imported} ${type === "movie" ? "movies" : "Series"}!`,
           });
         } catch (error: any) {
           console.error(`Error importing ${type}:`, error);
@@ -868,35 +1607,20 @@ const FileManagement = () => {
     });
   };
 
-  const previewRenames = async (type: "movies" | "series" | "bulk") => {
-    // Validate directories based on type
-    if (type === "movies" && !settings.movieDirectory) {
+  const previewRenames = async (type: "movies" | "series") => {
+    const scanPath =
+      type === "movies" ? movieNamingScanPath() : seriesNamingScanPath();
+    if (!scanPath) {
+      const folderLabel =
+        (type === "movies"
+          ? settings.movieNamingScanTarget
+          : settings.seriesNamingScanTarget) === "download"
+          ? "download"
+          : "media";
       setInfoModal({
         isOpen: true,
         title: "Configuration Required",
-        message: "Please configure your movie directory first!",
-        type: "error",
-      });
-      return;
-    }
-    if (type === "series" && !settings.seriesDirectory) {
-      setInfoModal({
-        isOpen: true,
-        title: "Configuration Required",
-        message: "Please configure your series directory first!",
-        type: "error",
-      });
-      return;
-    }
-    if (
-      type === "bulk" &&
-      !settings.movieDirectory &&
-      !settings.seriesDirectory
-    ) {
-      setInfoModal({
-        isOpen: true,
-        title: "Configuration Required",
-        message: "Please configure at least one media directory first!",
+        message: `Set your ${type === "movies" ? "movie" : "Series"} ${folderLabel} folder in Media Directories first.`,
         type: "error",
       });
       return;
@@ -911,38 +1635,46 @@ const FileManagement = () => {
       const response = await axios.post(
         `${API_BASE_URL}/api/Settings/preview-renames`,
         {
-          movieFileFormat: settings.movieFileFormat,
-          seriesFileFormat: settings.seriesFileFormat,
-          type: type, // Pass the type to backend
+          movieFileFormat:
+            type === "movies" ? settings.movieFileFormat : undefined,
+          seriesFileFormat:
+            type === "series" ? settings.seriesFileFormat : undefined,
+          type,
         },
         {
           headers: { Authorization: `Bearer ${token}` },
-          timeout: 60000,
+          timeout: 600000,
         },
       );
 
       let allRenames: RenameItem[] = [];
 
-      if (type === "movies" || type === "bulk") {
-        allRenames = [
-          ...allRenames,
-          ...(response.data.movies || []).map((r: any) => ({
-            ...r,
-            type: "movie" as const,
-          })),
-        ];
-      }
-      if (type === "series" || type === "bulk") {
-        allRenames = [
-          ...allRenames,
-          ...(response.data.series || []).map((r: any) => ({
-            ...r,
-            type: "series" as const,
-          })),
-        ];
+      if (type === "movies") {
+        allRenames = (response.data.movies || []).map((r: any) => ({
+          ...r,
+          type: "movie" as const,
+        }));
+        setRenamePreviewStats({
+          movies: response.data.stats?.movies ?? null,
+          series: null,
+        });
+      } else {
+        allRenames = (response.data.series || []).map((r: any) => ({
+          ...r,
+          type: "series" as const,
+        }));
+        setRenamePreviewStats({
+          movies: null,
+          series: response.data.stats?.series ?? null,
+        });
       }
 
-      setRenamePreview(allRenames);
+      setRenamePreviewSearch("");
+      setRenamePreview(
+        [...allRenames].sort(
+          (a, b) => Number(Boolean(b.needsReview)) - Number(Boolean(a.needsReview)),
+        ),
+      );
       setShowRenameModal(true);
     } catch (error: any) {
       console.error("Error previewing renames:", error);
@@ -962,127 +1694,335 @@ const FileManagement = () => {
     }
   };
 
-  const executeRenames = async () => {
-    setConfirmModal({
+  const renamePayloadFromItem = (item: RenameItem) => ({
+    movieId: item.movieId,
+    seriesId: item.seriesId,
+    currentPath: item.currentPath,
+    currentName: item.currentName,
+    newName: item.newName,
+    newPath: item.newPath,
+    directory: item.directory,
+    season: item.season,
+    episode: item.episode,
+  });
+
+  const stopRenameBatchPoll = () => {
+    if (renameBatchPollRef.current) {
+      clearInterval(renameBatchPollRef.current);
+      renameBatchPollRef.current = null;
+    }
+  };
+
+  const fetchRenameBatchStatus =
+    async (): Promise<RenameBatchServerStatus | null> => {
+      const token = localStorage.getItem("accessToken");
+      const res = await axios.get(
+        `${API_BASE_URL}/api/Settings/rename-batch/status`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      return res.data.batch ?? null;
+    };
+
+  const applyServerBatchProgress = (batch: RenameBatchServerStatus) => {
+    setRenaming(batch.status === "running");
+    setRenameBatchProgress({
+      done: batch.done,
+      total: batch.total,
+      success: batch.success,
+      failed: batch.failed,
+      activeNames: batch.activeNames ?? [],
+      mediaKind: batch.mediaKind,
+    });
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      next.add(batch.mediaKind === "series" ? "seriesNaming" : "movieNaming");
+      return next;
+    });
+  };
+
+  const handleBatchFinished = async (batch: RenameBatchServerStatus) => {
+    if (batchCompletionHandledRef.current) return;
+    batchCompletionHandledRef.current = true;
+    stopRenameBatchPoll();
+    setRenameBatchProgress(null);
+    setRenaming(false);
+    setActivityLogRefresh((n) => n + 1);
+    setInfoModal({
       isOpen: true,
-      title: "Confirm Rename",
-      message: `Are you sure you want to rename ${renamePreview.length} file(s)?\n\nThis action cannot be undone!`,
-      onConfirm: async () => {
-        setConfirmModal({ ...confirmModal, isOpen: false });
-        setRenaming(true);
-        setMessage(null);
+      title: batch.status === "failed" ? "Rename Failed" : "Rename Complete",
+      message:
+        batch.status === "failed"
+          ? batch.error || "Rename batch failed"
+          : `✅ Renamed: ${batch.success} files\n❌ Failed: ${batch.failed} files`,
+      type:
+        batch.failed > 0 || batch.status === "failed" ? "error" : "success",
+    });
+    const token = localStorage.getItem("accessToken");
+    try {
+      await axios.post(
+        `${API_BASE_URL}/api/Settings/rename-batch/dismiss`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } catch {
+      /* ignore */
+    }
+    batchCompletionHandledRef.current = false;
+  };
 
-        try {
-          const token = localStorage.getItem("accessToken");
+  const pollRenameBatchOnce = async () => {
+    try {
+      const batch = await fetchRenameBatchStatus();
+      if (!batch) {
+        stopRenameBatchPoll();
+        setRenameBatchProgress(null);
+        setRenaming(false);
+        return;
+      }
+      applyServerBatchProgress(batch);
+      if (batch.status === "running") {
+        return;
+      }
+      await handleBatchFinished(batch);
+    } catch {
+      /* keep polling on transient errors */
+    }
+  };
 
-          const movies = renamePreview.filter((r) => r.type === "movie");
-          const series = renamePreview.filter((r) => r.type === "series");
+  const startRenameBatchPoll = () => {
+    stopRenameBatchPoll();
+    void pollRenameBatchOnce();
+    renameBatchPollRef.current = setInterval(() => {
+      void pollRenameBatchOnce();
+    }, 1500);
+  };
 
-          let totalSuccess = 0;
-          let totalFailed = 0;
+  useEffect(() => () => stopRenameBatchPoll(), []);
 
-          if (movies.length > 0) {
-            const movieResponse = await axios.post(
-              `${API_BASE_URL}/api/Settings/execute-renames`,
-              { renames: movies, type: "movies" },
-              {
-                headers: { Authorization: `Bearer ${token}` },
-                timeout: 120000,
-              },
-            );
-            totalSuccess += movieResponse.data.results.success;
-            totalFailed += movieResponse.data.results.failed;
-          }
+  useEffect(() => {
+    if (!user) return;
+    void (async () => {
+      try {
+        const batch = await fetchRenameBatchStatus();
+        if (!batch) return;
+        if (batch.status === "running") {
+          applyServerBatchProgress(batch);
+          startRenameBatchPoll();
+        } else if (batch.status === "complete" || batch.status === "failed") {
+          applyServerBatchProgress(batch);
+          await handleBatchFinished(batch);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resume once per login
+  }, [user]);
 
-          if (series.length > 0) {
-            const seriesResponse = await axios.post(
-              `${API_BASE_URL}/api/Settings/execute-renames`,
-              { renames: series, type: "series" },
-              {
-                headers: { Authorization: `Bearer ${token}` },
-                timeout: 120000,
-              },
-            );
-            totalSuccess += seriesResponse.data.results.success;
-            totalFailed += seriesResponse.data.results.failed;
-          }
+  const postRenames = async (
+    items: RenameItem[],
+    type: "movies" | "series",
+    options?: { timeoutMs?: number },
+  ) => {
+    const token = localStorage.getItem("accessToken");
+    const response = await axios.post(
+      `${API_BASE_URL}/api/Settings/execute-renames`,
+      {
+        renames: items.map(renamePayloadFromItem),
+        type,
+      },
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: options?.timeoutMs ?? 600_000,
+      },
+    );
+    return response.data.results as {
+      success: number;
+      failed: number;
+      errors: Array<{ currentName?: string; error?: string }>;
+    };
+  };
 
-          setInfoModal({
-            isOpen: true,
-            title: "Rename Complete",
-            message: `✅ Renamed: ${totalSuccess} files\n❌ Failed: ${totalFailed} files`,
-            type: "success",
+  const runBatchRenames = async (items: RenameItem[]) => {
+    setShowRenameModal(false);
+    setRenamePreviewSearch("");
+    setMessage(null);
+    batchCompletionHandledRef.current = false;
+
+    try {
+      const token = localStorage.getItem("accessToken");
+      const renames = items.map((item) => ({
+        ...renamePayloadFromItem(item),
+        type: item.type === "series" ? "series" : "movie",
+      }));
+      const res = await axios.post(
+        `${API_BASE_URL}/api/Settings/rename-batch/start`,
+        { renames },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const batch = res.data.batch as RenameBatchServerStatus;
+      setRenamePreview([]);
+      applyServerBatchProgress(batch);
+      startRenameBatchPoll();
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } }; message?: string };
+      setInfoModal({
+        isOpen: true,
+        title: "Rename Failed",
+        message:
+          err.response?.data?.error ||
+          err.message ||
+          "Could not start rename batch",
+        type: "error",
+      });
+    }
+  };
+
+  const executeSingleRename = (item: RenameItem) => {
+    const run = async () => {
+      if (!item.newName?.trim()) {
+        setInfoModal({
+          isOpen: true,
+          title: "Cannot Rename",
+          message: "Enter a new filename first.",
+          type: "error",
+        });
+        return;
+      }
+
+      setRenamingPath(item.currentPath);
+      setMessage(null);
+
+      try {
+        const apiType = item.type === "movie" ? "movies" : "series";
+        const results = await postRenames([item], apiType);
+        setActivityLogRefresh((n) => n + 1);
+        if (results.success > 0) {
+          setRenamePreview((prev) => {
+            const next = prev.filter((r) => r.currentPath !== item.currentPath);
+            if (next.length === 0) setShowRenameModal(false);
+            return next;
           });
-
           setMessage({
             type: "success",
-            text: `Successfully renamed ${totalSuccess} files!`,
+            text: `Renamed: ${item.currentName} → ${item.newName}`,
           });
-
-          setShowRenameModal(false);
-        } catch (error: any) {
-          console.error("Error renaming files:", error);
-          const errorMsg =
-            error.response?.data?.error ||
-            error.message ||
-            "Failed to rename files";
+        } else {
+          const err =
+            results.errors?.[0]?.error || "Rename failed for this file.";
           setInfoModal({
             isOpen: true,
             title: "Rename Failed",
-            message: errorMsg,
+            message: err,
             type: "error",
           });
-          setMessage({ type: "error", text: errorMsg });
-        } finally {
-          setRenaming(false);
         }
+      } catch (error: any) {
+        const errorMsg =
+          error.response?.data?.error ||
+          error.message ||
+          "Failed to rename file";
+        setInfoModal({
+          isOpen: true,
+          title: "Rename Failed",
+          message: errorMsg,
+          type: "error",
+        });
+      } finally {
+        setRenamingPath(null);
+      }
+    };
+
+    void run();
+  };
+
+  const applyManualTmdbMatch = async (
+    item: RenameItem,
+    pick: { id: number; title: string },
+  ) => {
+    setApplyingTmdb(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      const res = await axios.post(
+        `${API_BASE_URL}/api/Settings/rename-apply-tmdb`,
+        {
+          currentPath: item.currentPath,
+          movieFileFormat:
+            settings.movieFileFormat || DEFAULT_SETTINGS.movieFileFormat,
+          tmdbId: pick.id,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const row = res.data.rename;
+      setRenamePreview((prev) =>
+        prev.map((r) =>
+          r.currentPath === item.currentPath
+            ? {
+                ...r,
+                ...row,
+                type: "movie" as const,
+              }
+            : r,
+        ),
+      );
+      setTmdbPickItem(null);
+      setMessage({
+        type: "success",
+        text: `Matched to ${pick.title} — preview updated`,
+      });
+    } catch (error: any) {
+      const msg =
+        error.response?.data?.error ||
+        error.message ||
+        "Failed to apply TMDB match";
+      setInfoModal({
+        isOpen: true,
+        title: "TMDB match failed",
+        message: msg,
+        type: "error",
+      });
+    } finally {
+      setApplyingTmdb(false);
+    }
+  };
+
+  const executeRenamesSubset = (items: RenameItem[], confirmTitle: string) => {
+    if (items.length === 0) {
+      setInfoModal({
+        isOpen: true,
+        title: "Nothing to rename",
+        message: "No files selected for this action.",
+        type: "error",
+      });
+      return;
+    }
+    setConfirmModal({
+      isOpen: true,
+      title: confirmTitle,
+      message: `Rename ${items.length} file(s)? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirmModal((m) => ({ ...m, isOpen: false }));
+        await runBatchRenames(items);
       },
     });
   };
 
-  const handleAutoRenameToggle = (enabled: boolean) => {
-    if (enabled && !settings.autoRenameWarningShown) {
-      // First time enabling - show beta warning
-      setPendingAutoRenameEnable(true);
-      setShowBetaWarning(true);
-    } else {
-      // Already seen warning or disabling
-      setSettings({ ...settings, autoRename: enabled });
-    }
+  const executeRenamesWithoutConflict = () => {
+    const safe = renamePreview.filter((r) => !r.needsReview);
+    executeRenamesSubset(
+      safe,
+      "Rename files with no conflict",
+    );
   };
 
-  const confirmAutoRenameEnable = async () => {
-    setShowBetaWarning(false);
-    setPendingAutoRenameEnable(false);
-
-    // Mark warning as shown and enable auto-rename
-    const updatedSettings = {
-      ...settings,
-      autoRename: true,
-      autoRenameWarningShown: true,
-    };
-    setSettings(updatedSettings);
-
-    // Save immediately so the warning flag is persisted
-    try {
-      const token = localStorage.getItem("accessToken");
-      await axios.put(`${API_BASE_URL}/api/Settings`, updatedSettings, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setMessage({
-        type: "success",
-        text: "Auto-rename enabled! The service will start scanning your files.",
-      });
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      console.error("Error saving auto-rename setting:", error);
-    }
+  const executeRenames = () => {
+    executeRenamesSubset(renamePreview, "Rename all files");
   };
 
   const getDirStatusIcon = (status: "untested" | "success" | "error") => {
     switch (status) {
       case "success":
-        return <Check className="text-success" size={16} />;
+        return <Check className="text-secondary" size={16} />;
       case "error":
         return <X className="text-danger" size={16} />;
       default:
@@ -1090,12 +2030,59 @@ const FileManagement = () => {
     }
   };
 
+  const renderRenameBatchProgress = (mediaKind: "movies" | "series") => {
+    if (!renameBatchProgress || renameBatchProgress.mediaKind !== mediaKind) {
+      return null;
+    }
+    const accent = "secondary";
+    return (
+      <div className="pt-4 border-t border-content3 space-y-3 rounded-lg border border-secondary/40 bg-secondary/5 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <Pencil className="text-secondary" size={18} />
+            Renaming {mediaKind === "movies" ? "movies" : "Series episodes"}…
+          </span>
+          <span className="text-sm font-semibold tabular-nums">
+            {renameBatchProgress.done}/{renameBatchProgress.total}
+          </span>
+        </div>
+        <Progress
+          aria-label="Rename progress"
+          className="w-full"
+          color={accent}
+          size="md"
+          value={
+            renameBatchProgress.total > 0
+              ? Math.round(
+                  (renameBatchProgress.done / renameBatchProgress.total) * 100,
+                )
+              : 0
+          }
+        />
+        {renameBatchProgress.activeNames.length > 0 ? (
+          <div className="text-xs text-default-500 space-y-1 min-w-0">
+            <p className="font-medium text-default-600">Working on:</p>
+            {renameBatchProgress.activeNames.map((name) => (
+              <p className="truncate font-mono" key={name}>
+                {name}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        <p className="text-xs text-default-500">
+          ✅ {renameBatchProgress.success} succeeded · ❌{" "}
+          {renameBatchProgress.failed} failed
+        </p>
+      </div>
+    );
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Card className="max-w-md mx-4">
           <CardBody className="text-center py-8">
-            <AlertTriangle className="mx-auto mb-4 text-warning" size={48} />
+            <AlertTriangle className="mx-auto mb-4 text-secondary" size={48} />
             <h2 className="text-xl font-bold mb-2">Authentication Required</h2>
             <p className="text-default-500">
               Please sign in to access file management settings.
@@ -1113,12 +2100,12 @@ const FileManagement = () => {
           description="Configure media directories and file naming conventions"
           icon={<HardDrive className="h-6 w-6" />}
           title="File Management"
-          tone="primary"
+          tone="secondary"
         />
 
         <PageContent>
-          <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-primary/20 bg-content1">
-            <Spinner color="primary" size="lg" />
+          <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-secondary/20 bg-content1">
+            <Spinner color="secondary" size="lg" />
             <p className="mt-4 text-foreground/60">
               Loading file management settings...
             </p>
@@ -1132,22 +2119,20 @@ const FileManagement = () => {
     <div className="min-h-screen bg-background">
       <PageHeader
         actions={
-          <Button
-            className="font-semibold"
-            color="primary"
-            isLoading={saving}
-            onPress={handleSave}
-            size="lg"
-            startContent={!saving && <Check size={20} />}
-            variant="shadow"
-          >
-            {saving ? "Saving Settings..." : "Save All Settings"}
-          </Button>
+          saving ? (
+            <Chip color="secondary" size="sm" variant="flat">
+              Saving…
+            </Chip>
+          ) : (
+            <Chip color="default" size="sm" variant="bordered">
+              Changes save automatically
+            </Chip>
+          )
         }
         description="Configure media directories and file naming conventions"
         icon={<HardDrive className="h-6 w-6" />}
         title="File Management"
-        tone="primary"
+        tone="secondary"
       />
 
       {/* Content */}
@@ -1157,7 +2142,7 @@ const FileManagement = () => {
           <div
             className={`mb-6 p-4 rounded-lg border ${
               message.type === "success"
-                ? "bg-success/10 border-success/30 text-success"
+                ? "bg-secondary/10 border-secondary/30 text-secondary"
                 : "bg-danger/10 border-danger/30 text-danger"
             }`}
           >
@@ -1181,11 +2166,12 @@ const FileManagement = () => {
             >
               <div className="flex items-center justify-between w-full">
                 <div className="flex items-center gap-3">
-                  <FolderOpen className="text-primary" size={24} />
+                  <FolderOpen className="text-secondary" size={24} />
                   <div>
                     <h2 className="text-lg font-semibold">Media Directories</h2>
                     <p className="text-sm text-default-500">
-                      Configure where your movies and TV series are stored
+                      Saved download and media folders — used by import,
+                      monitoring, rename, and watch & move
                     </p>
                   </div>
                 </div>
@@ -1197,358 +2183,26 @@ const FileManagement = () => {
               </div>
             </CardHeader>
             {expandedSections.has("directories") && (
-              <CardBody className="pt-0 space-y-6">
-                {/* Movie Directory */}
-                <div className="space-y-3">
+              <CardBody className="pt-0 space-y-8">
+                <SectionInfoCallout>
+                  For each type, set a download folder (where your client drops
+                  finished files) and a media folder (your organized library on
+                  disk). BorrowArr remembers these paths—import, monitoring,
+                  rename, watch & move, and other sections on this page use
+                  them automatically. Use Test to confirm the server can reach
+                  each folder before you rely on it.
+                </SectionInfoCallout>
+                <div className="p-4 rounded-xl border border-secondary/30 bg-secondary/5 space-y-4">
                   <div className="flex items-center gap-2">
-                    <Film className="text-primary" size={18} />
-                    <span className="font-medium">Movie Directory</span>
-                    {getDirStatusIcon(movieDirStatus)}
+                    <Film className="text-secondary" size={20} />
+                    <h3 className="font-semibold text-secondary">Movies</h3>
                   </div>
-                  <DirectoryPicker
-                    label=""
-                    onChange={(path) => {
-                      setSettings({ ...settings, movieDirectory: path });
-                      setMovieDirStatus("untested");
-                    }}
-                    placeholder="/path/to/movies (e.g., /Users/you/Movies)"
-                    value={settings.movieDirectory}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      color="secondary"
-                      isDisabled={!settings.movieDirectory}
-                      isLoading={testingMovieDir}
-                      onPress={() => testDirectory("movie")}
-                      size="sm"
-                      startContent={!testingMovieDir && <RefreshCw size={14} />}
-                      variant="flat"
-                    >
-                      Test Directory
-                    </Button>
-                    <Button
-                      color="primary"
-                      isDisabled={!settings.movieDirectory}
-                      isLoading={importingMovies}
-                      onPress={() => importMedia("movie")}
-                      size="sm"
-                      startContent={!importingMovies && <Download size={14} />}
-                      variant="flat"
-                    >
-                      Import Movies
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Series Directory */}
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Tv className="text-secondary" size={18} />
-                    <span className="font-medium">Series Directory</span>
-                    {getDirStatusIcon(seriesDirStatus)}
-                  </div>
-                  <DirectoryPicker
-                    label=""
-                    onChange={(path) => {
-                      setSettings({ ...settings, seriesDirectory: path });
-                      setSeriesDirStatus("untested");
-                    }}
-                    placeholder="/path/to/series (e.g., /Users/you/TV Shows)"
-                    value={settings.seriesDirectory}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      color="secondary"
-                      isDisabled={!settings.seriesDirectory}
-                      isLoading={testingSeriesDir}
-                      onPress={() => testDirectory("series")}
-                      size="sm"
-                      startContent={
-                        !testingSeriesDir && <RefreshCw size={14} />
-                      }
-                      variant="flat"
-                    >
-                      Test Directory
-                    </Button>
-                    <Button
-                      color="primary"
-                      isDisabled={!settings.seriesDirectory}
-                      isLoading={importingSeries}
-                      onPress={() => importMedia("series")}
-                      size="sm"
-                      startContent={!importingSeries && <Download size={14} />}
-                      variant="flat"
-                    >
-                      Import Series
-                    </Button>
-                  </div>
-                </div>
-              </CardBody>
-            )}
-          </Card>
-
-          {/* Completed Download Handling (client-tracked grabs) */}
-          <Card className="border border-violet-500/30 bg-gradient-to-r from-violet-500/5 to-fuchsia-500/5">
-            <CardHeader
-              className="cursor-pointer hover:bg-violet-500/10 transition-colors"
-              onClick={() => toggleSection("completedDownloads")}
-            >
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  <Download className="text-violet-500" size={24} />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold">
-                        Completed Download Handling
-                      </h2>
-                      <Chip color="secondary" size="sm" variant="flat">
-                        CLIENT API
-                      </Chip>
-                    </div>
-                    <p className="text-sm text-default-500">
-                      Track grabs via your download client, then import into the
-                      library (Sonarr/Radarr-style)
-                    </p>
-                  </div>
-                </div>
-                {expandedSections.has("completedDownloads") ? (
-                  <ChevronDown size={20} />
-                ) : (
-                  <ChevronRight size={20} />
-                )}
-              </div>
-            </CardHeader>
-            {expandedSections.has("completedDownloads") && (
-              <CardBody className="pt-0 space-y-5">
-                <div className="flex items-start gap-3 p-4 rounded-lg bg-violet-500/10 border border-violet-500/20">
-                  <Info
-                    className="text-violet-500 flex-shrink-0 mt-0.5"
-                    size={20}
-                  />
-                  <p className="text-xs text-default-500">
-                    When you grab from BorrowArr, a History entry is linked to
-                    your download client. The server polls qBittorrent /
-                    SABnzbd / NZBGet (etc.) for completion, then imports to your
-                    movie/series directories. This is separate from the folder
-                    Download Watcher below.
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
-                  <div>
-                    <p className="font-medium">Enable client tracking</p>
-                    <p className="text-xs text-default-500">
-                      Poll download clients for grabs sent from BorrowArr
-                    </p>
-                  </div>
-                  <Switch
-                    color="secondary"
-                    isSelected={settings.completedDownloadHandlingEnabled}
-                    onValueChange={(checked) =>
-                      setSettings({
-                        ...settings,
-                        completedDownloadHandlingEnabled: checked,
-                      })
-                    }
-                  />
-                </div>
-
-                {settings.completedDownloadHandlingEnabled && (
-                  <>
-                    <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
-                      <div>
-                        <p className="font-medium">Auto-import when complete</p>
-                        <p className="text-xs text-default-500">
-                          Second step: move/hardlink into library after client
-                          reports finished
-                        </p>
-                      </div>
-                      <Switch
-                        color="secondary"
-                        isSelected={
-                          settings.completedDownloadHandlingImportEnabled
-                        }
-                        onValueChange={(checked) =>
-                          setSettings({
-                            ...settings,
-                            completedDownloadHandlingImportEnabled: checked,
-                          })
-                        }
-                      />
-                    </div>
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <label
-                          className="text-sm font-medium"
-                          htmlFor="cdhInterval"
-                        >
-                          Poll interval (seconds)
-                        </label>
-                        <Input
-                          id="cdhInterval"
-                          max="3600"
-                          min="30"
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              completedDownloadCheckInterval: Math.max(
-                                30,
-                                parseInt(e.target.value, 10) || 60,
-                              ),
-                            })
-                          }
-                          type="number"
-                          value={String(
-                            settings.completedDownloadCheckInterval || 60,
-                          )}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label
-                          className="text-sm font-medium"
-                          htmlFor="cdhMode"
-                        >
-                          Import mode
-                        </label>
-                        <select
-                          className="w-full rounded-lg border border-content3 bg-content1 px-3 py-2 text-sm"
-                          id="cdhMode"
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              completedDownloadImportMode: e.target.value,
-                            })
-                          }
-                          value={settings.completedDownloadImportMode}
-                        >
-                          <option value="hardlink">
-                            Hardlink (keeps seeding)
-                          </option>
-                          <option value="copy">Copy</option>
-                          <option value="move">Move</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
-                      <div>
-                        <p className="font-medium">
-                          Remove completed from client (Usenet)
-                        </p>
-                        <p className="text-xs text-default-500">
-                          Torrents are never removed automatically (seeding)
-                        </p>
-                      </div>
-                      <Switch
-                        isSelected={settings.completedDownloadRemoveFromClient}
-                        onValueChange={(checked) =>
-                          setSettings({
-                            ...settings,
-                            completedDownloadRemoveFromClient: checked,
-                          })
-                        }
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-content2 border border-content3">
-                      <div className="text-sm text-default-500">
-                        {cdhStatus ? (
-                          <>
-                            <strong>{cdhStatus.activeDownloads}</strong> active
-                            · <strong>{cdhStatus.awaitingImport}</strong>{" "}
-                            awaiting import · poll every{" "}
-                            <strong>
-                              {cdhStatus.checkIntervalSeconds || 60}s
-                            </strong>
-                          </>
-                        ) : (
-                          "Save settings, then refresh to poll clients"
-                        )}
-                      </div>
-                      <Button
-                        color="secondary"
-                        isLoading={refreshingCdh}
-                        onPress={triggerCdhRefresh}
-                        size="sm"
-                        startContent={
-                          !refreshingCdh && <RefreshCw size={14} />
-                        }
-                        variant="flat"
-                      >
-                        Refresh tracked downloads
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </CardBody>
-            )}
-          </Card>
-
-          {/* Download Watcher Section */}
-          <Card className="border border-cyan-500/30 bg-gradient-to-r from-cyan-500/5 to-blue-500/5">
-            <CardHeader
-              className="cursor-pointer hover:bg-cyan-500/10 transition-colors"
-              onClick={() => toggleSection("downloadWatcher")}
-            >
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  <FolderInput className="text-cyan-500" size={24} />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold">
-                        Download Watcher
-                      </h2>
-                      <Chip color="primary" size="sm" variant="flat">
-                        AUTO-MOVE
-                      </Chip>
-                    </div>
-                    <p className="text-sm text-default-500">
-                      Move downloads from category folders to your media library
-                    </p>
-                  </div>
-                </div>
-                {expandedSections.has("downloadWatcher") ? (
-                  <ChevronDown size={20} />
-                ) : (
-                  <ChevronRight size={20} />
-                )}
-              </div>
-            </CardHeader>
-            {expandedSections.has("downloadWatcher") && (
-              <CardBody className="pt-0 space-y-6">
-                {/* Simple explanation */}
-                <div className="flex items-start gap-3 p-4 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-                  <Info
-                    className="text-cyan-500 flex-shrink-0 mt-0.5"
-                    size={20}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-cyan-500">
-                      How it works
-                    </p>
-                    <p className="text-xs text-default-500 mt-1">
-                      Set your download client to save movies and TV shows to
-                      separate folders. The watcher will automatically move
-                      completed files to your media library.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Movies Row */}
-                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <Film className="text-primary" size={20} />
-                    <h3 className="font-semibold text-primary">Movies</h3>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {/* Source */}
-                    <div className="flex-1 space-y-2">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <Download className="text-default-400" size={14} />
-                        <span className="text-xs font-medium text-default-500">
-                          Download Folder
+                        <span className="text-sm font-medium">
+                          Download folder
                         </span>
                         {getDirStatusIcon(movieDownloadDirStatus)}
                       </div>
@@ -1578,19 +2232,11 @@ const FileManagement = () => {
                         Test
                       </Button>
                     </div>
-
-                    {/* Arrow */}
-                    <ArrowRight
-                      className="text-primary flex-shrink-0"
-                      size={24}
-                    />
-
-                    {/* Destination */}
-                    <div className="flex-1 space-y-2">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <FolderOutput className="text-default-400" size={14} />
-                        <span className="text-xs font-medium text-default-500">
-                          Media Folder
+                        <span className="text-sm font-medium">
+                          Media folder
                         </span>
                         {getDirStatusIcon(movieWatcherDestStatus)}
                       </div>
@@ -1606,37 +2252,51 @@ const FileManagement = () => {
                         placeholder="/media/movies"
                         value={settings.movieWatcherDestination}
                       />
-                      <Button
-                        color="default"
-                        isDisabled={!settings.movieWatcherDestination}
-                        isLoading={testingMovieWatcherDest}
-                        onPress={() => testWatcherDestination("movie")}
-                        size="sm"
-                        startContent={
-                          !testingMovieWatcherDest && <RefreshCw size={12} />
-                        }
-                        variant="flat"
-                      >
-                        Test
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          color="default"
+                          isDisabled={!settings.movieWatcherDestination}
+                          isLoading={testingMovieWatcherDest}
+                          onPress={() => testWatcherDestination("movie")}
+                          size="sm"
+                          startContent={
+                            !testingMovieWatcherDest && (
+                              <RefreshCw size={12} />
+                            )
+                          }
+                          variant="flat"
+                        >
+                          Test
+                        </Button>
+                        <Button
+                          color="secondary"
+                          isDisabled={!settings.movieWatcherDestination}
+                          isLoading={importingMovies}
+                          onPress={() => importMedia("movie")}
+                          size="sm"
+                          startContent={
+                            !importingMovies && <Download size={14} />
+                          }
+                          variant="flat"
+                        >
+                          Import Movies
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                {/* TV Shows Row */}
                 <div className="p-4 rounded-xl border border-secondary/30 bg-secondary/5 space-y-4">
                   <div className="flex items-center gap-2">
                     <Tv className="text-secondary" size={20} />
-                    <h3 className="font-semibold text-secondary">TV Shows</h3>
+                    <h3 className="font-semibold text-secondary">Series</h3>
                   </div>
-
-                  <div className="flex items-center gap-3">
-                    {/* Source */}
-                    <div className="flex-1 space-y-2">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <Download className="text-default-400" size={14} />
-                        <span className="text-xs font-medium text-default-500">
-                          Download Folder
+                        <span className="text-sm font-medium">
+                          Download folder
                         </span>
                         {getDirStatusIcon(seriesDownloadDirStatus)}
                       </div>
@@ -1649,7 +2309,7 @@ const FileManagement = () => {
                           });
                           setSeriesDownloadDirStatus("untested");
                         }}
-                        placeholder="/downloads/tv"
+                        placeholder="/downloads/series"
                         value={settings.seriesDownloadDirectory}
                       />
                       <Button
@@ -1666,19 +2326,11 @@ const FileManagement = () => {
                         Test
                       </Button>
                     </div>
-
-                    {/* Arrow */}
-                    <ArrowRight
-                      className="text-secondary flex-shrink-0"
-                      size={24}
-                    />
-
-                    {/* Destination */}
-                    <div className="flex-1 space-y-2">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <FolderOutput className="text-default-400" size={14} />
-                        <span className="text-xs font-medium text-default-500">
-                          Media Folder
+                        <span className="text-sm font-medium">
+                          Media folder
                         </span>
                         {getDirStatusIcon(seriesWatcherDestStatus)}
                       </div>
@@ -1691,211 +2343,607 @@ const FileManagement = () => {
                           });
                           setSeriesWatcherDestStatus("untested");
                         }}
-                        placeholder="/media/tv"
+                        placeholder="/media/series"
                         value={settings.seriesWatcherDestination}
                       />
-                      <Button
-                        color="default"
-                        isDisabled={!settings.seriesWatcherDestination}
-                        isLoading={testingSeriesWatcherDest}
-                        onPress={() => testWatcherDestination("series")}
-                        size="sm"
-                        startContent={
-                          !testingSeriesWatcherDest && <RefreshCw size={12} />
-                        }
-                        variant="flat"
-                      >
-                        Test
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Enable/Disable Toggle */}
-                <div className="flex items-center justify-between p-4 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`p-2 rounded-lg ${settings.downloadWatcherEnabled ? "bg-success/20" : "bg-content3"}`}
-                    >
-                      {settings.downloadWatcherEnabled ? (
-                        <Play className="text-success" size={18} />
-                      ) : (
-                        <Pause className="text-default-500" size={18} />
-                      )}
-                    </div>
-                    <div>
-                      <p className="font-medium">Enable Download Watcher</p>
-                      <p className="text-xs text-default-500">
-                        {settings.downloadWatcherEnabled
-                          ? `Scanning every ${settings.watcherInterval} seconds`
-                          : "Enable to start watching downloads"}
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    color="success"
-                    isSelected={settings.downloadWatcherEnabled}
-                    onValueChange={(checked) =>
-                      setSettings({
-                        ...settings,
-                        downloadWatcherEnabled: checked,
-                      })
-                    }
-                  />
-                </div>
-
-                {/* Auto-Approve Toggle */}
-                {settings.downloadWatcherEnabled && (
-                  <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`p-2 rounded-lg ${settings.watcherAutoApprove ? "bg-primary/20" : "bg-warning/20"}`}
-                      >
-                        {settings.watcherAutoApprove ? (
-                          <Zap className="text-primary" size={18} />
-                        ) : (
-                          <FileCheck className="text-warning" size={18} />
-                        )}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          color="default"
+                          isDisabled={!settings.seriesWatcherDestination}
+                          isLoading={testingSeriesWatcherDest}
+                          onPress={() => testWatcherDestination("series")}
+                          size="sm"
+                          startContent={
+                            !testingSeriesWatcherDest && (
+                              <RefreshCw size={12} />
+                            )
+                          }
+                          variant="flat"
+                        >
+                          Test
+                        </Button>
+                        <Button
+                          color="secondary"
+                          isDisabled={!settings.seriesWatcherDestination}
+                          isLoading={importingSeries}
+                          onPress={() => importMedia("series")}
+                          size="sm"
+                          startContent={
+                            !importingSeries && <Download size={14} />
+                          }
+                          variant="flat"
+                        >
+                          Import Series
+                        </Button>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </CardBody>
+            )}
+          </Card>
+
+          <IndexerDefinitionSyncCard
+            expanded={expandedSections.has("indexerDefinitions")}
+            isAdmin={Boolean(user?.permissions?.admin)}
+            onToggle={() => toggleSection("indexerDefinitions")}
+          />
+
+          <AnomalyDetectorPanel
+            anomalyPrefs={{
+              anomalyDetectorAutoScanEnabled:
+                settings.anomalyDetectorAutoScanEnabled === true,
+              anomalyDetectorScanInterval:
+                settings.anomalyDetectorScanInterval || 1800,
+              anomalyDetectorScanDirKey:
+                settings.anomalyDetectorScanDirKey || "movieMedia",
+              anomalyDetectorCustomScanPath:
+                settings.anomalyDetectorCustomScanPath,
+              anomalyDetectorCheckDuplicates:
+                settings.anomalyDetectorCheckDuplicates !== false,
+              anomalyDetectorCheckCorruption:
+                settings.anomalyDetectorCheckCorruption === true,
+              anomalyDetectorCheckLargeFiles:
+                settings.anomalyDetectorCheckLargeFiles === true,
+            }}
+            expanded={expandedSections.has("anomalyDetector")}
+            mediaDirs={{
+              movieDownload: settings.movieDownloadDirectory,
+              movieMedia: settings.movieWatcherDestination,
+              seriesDownload: settings.seriesDownloadDirectory,
+              seriesMedia: settings.seriesWatcherDestination,
+            }}
+            onAnomalyPrefsChange={(patch) =>
+              setSettings({ ...settings, ...patch })
+            }
+            onToggle={() => toggleSection("anomalyDetector")}
+          />
+
+          {/* Watch & Move Section */}
+          <Card className="border border-content2">
+            <CardHeader
+              className="cursor-pointer hover:bg-content2/50 transition-colors"
+              onClick={() => toggleSection("downloadWatcher")}
+            >
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  <FolderInput className="text-secondary" size={24} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-semibold">Watch & Move</h2>
+                      <Chip color="secondary" size="sm" variant="flat">
+                        DOWNLOAD → LIBRARY
+                      </Chip>
+                    </div>
+                    <p className="text-sm text-default-500">
+                      Find finished downloads in your client folders and move
+                      them into the library (rename optional)
+                    </p>
+                  </div>
+                </div>
+                {expandedSections.has("downloadWatcher") ? (
+                  <ChevronDown size={20} />
+                ) : (
+                  <ChevronRight size={20} />
+                )}
+              </div>
+            </CardHeader>
+            {expandedSections.has("downloadWatcher") && (
+              <CardBody className="pt-0 space-y-6">
+                <SectionInfoCallout>
+                  Choose saved folders from Media Directories above, or pick
+                  custom paths. Enable automatic watch & move to poll on a
+                  schedule, or use Scan now for a one-time pass. Naming settings
+                  live under Movie / Series File Naming.
+                </SectionInfoCallout>
+
+                {/* Movies Row */}
+                <div
+                  className={`p-4 rounded-xl border border-secondary/30 bg-secondary/5 space-y-4 ${
+                    settings.movieWatcherEnabled === false ? "opacity-60" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Film className="text-secondary" size={20} />
                       <div>
-                        <p className="font-medium">
-                          {settings.watcherAutoApprove
-                            ? "Auto-Move Enabled"
-                            : "Manual Approval Required"}
-                        </p>
+                        <h3 className="font-semibold text-secondary">Movies</h3>
                         <p className="text-xs text-default-500">
-                          {settings.watcherAutoApprove
-                            ? "Files are moved automatically when detected"
-                            : "You must approve each file before it is moved"}
+                          Move completed movie downloads into the library
                         </p>
                       </div>
                     </div>
                     <Switch
-                      color="primary"
-                      isSelected={settings.watcherAutoApprove}
+                      color="secondary"
+                      isSelected={settings.movieWatcherEnabled !== false}
                       onValueChange={(checked) =>
                         setSettings({
                           ...settings,
-                          watcherAutoApprove: checked,
+                          movieWatcherEnabled: checked,
                         })
                       }
                     />
                   </div>
-                )}
 
-                {/* Scan Interval (only shown when auto-move is enabled) */}
-                {settings.downloadWatcherEnabled &&
-                  settings.watcherAutoApprove && (
-                    <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 space-y-3">
+                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        <Clock className="text-primary" size={18} />
-                        <div className="flex-1">
-                          <label
-                            className="text-sm font-medium text-primary"
-                            htmlFor="watcherInterval"
-                          >
-                            Scan Interval (seconds)
-                          </label>
-                          <p className="text-xs text-default-500">
-                            How often to check for new downloads (minimum: 10
-                            seconds)
-                          </p>
-                        </div>
+                        <Download className="text-default-400" size={14} />
+                        <span className="text-xs font-medium text-default-500">
+                          Download folder
+                        </span>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <Input
-                          className="max-w-32"
-                          endContent={
-                            <span className="text-xs text-default-400">
-                              sec
-                            </span>
-                          }
-                          id="watcherInterval"
-                          max="3600"
-                          min="10"
-                          onChange={(e) => {
-                            const value = parseInt(e.target.value) || 30;
-                            const clampedValue = Math.max(
-                              10,
-                              Math.min(3600, value),
-                            );
-                            setSettings({
-                              ...settings,
-                              watcherInterval: clampedValue,
-                            });
-                          }}
-                          startContent={
-                            <Clock className="text-default-400" size={16} />
-                          }
-                          type="number"
-                          value={String(settings.watcherInterval || 30)}
-                        />
-                        <div className="text-xs text-default-500">
-                          Currently scanning every{" "}
-                          <strong>{settings.watcherInterval || 30}s</strong>
-                        </div>
+                      <select
+                        className={selectFieldClass}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            movieWatcherDownloadMode: e.target.value as
+                              | "saved"
+                              | "custom",
+                          })
+                        }
+                        value={settings.movieWatcherDownloadMode || "saved"}
+                      >
+                        <option value="saved">
+                          Saved
+                          {settings.movieDownloadDirectory
+                            ? `: ${truncatePath(settings.movieDownloadDirectory)}`
+                            : " (set in Media Directories)"}
+                        </option>
+                        <option value="custom">Custom…</option>
+                      </select>
+                      {settings.movieWatcherDownloadMode === "custom" ? (
+                        <>
+                          <DirectoryPicker
+                            label=""
+                            onChange={(path) =>
+                              setSettings({
+                                ...settings,
+                                movieWatcherCustomDownloadDirectory: path,
+                              })
+                            }
+                            placeholder="Custom download folder"
+                            value={settings.movieWatcherCustomDownloadDirectory}
+                          />
+                          <Button
+                            color="default"
+                            isDisabled={
+                              !settings.movieWatcherCustomDownloadDirectory
+                            }
+                            isLoading={testingMovieDownloadDir}
+                            onPress={() =>
+                              testDownloadDirectory(
+                                "movie",
+                                settings.movieWatcherCustomDownloadDirectory,
+                              )
+                            }
+                            size="sm"
+                            startContent={
+                              !testingMovieDownloadDir && (
+                                <RefreshCw size={12} />
+                              )
+                            }
+                            variant="flat"
+                          >
+                            Test
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-default-400 break-all">
+                          {settings.movieDownloadDirectory ||
+                            "No saved download folder yet"}
+                        </p>
+                      )}
+                    </div>
+
+                    <ArrowRight
+                      className="text-secondary flex-shrink-0 hidden md:block mt-8"
+                      size={24}
+                    />
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <FolderOutput className="text-default-400" size={14} />
+                        <span className="text-xs font-medium text-default-500">
+                          Media folder
+                        </span>
+                      </div>
+                      <select
+                        className={selectFieldClass}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            movieWatcherMediaMode: e.target.value as
+                              | "saved"
+                              | "custom",
+                          })
+                        }
+                        value={settings.movieWatcherMediaMode || "saved"}
+                      >
+                        <option value="saved">
+                          Saved
+                          {settings.movieWatcherDestination
+                            ? `: ${truncatePath(settings.movieWatcherDestination)}`
+                            : " (set in Media Directories)"}
+                        </option>
+                        <option value="custom">Custom…</option>
+                      </select>
+                      {settings.movieWatcherMediaMode === "custom" ? (
+                        <>
+                          <DirectoryPicker
+                            label=""
+                            onChange={(path) =>
+                              setSettings({
+                                ...settings,
+                                movieWatcherCustomMediaDirectory: path,
+                              })
+                            }
+                            placeholder="Custom media folder"
+                            value={settings.movieWatcherCustomMediaDirectory}
+                          />
+                          <Button
+                            color="default"
+                            isDisabled={
+                              !settings.movieWatcherCustomMediaDirectory
+                            }
+                            isLoading={testingMovieWatcherDest}
+                            onPress={() =>
+                              testWatcherDestination(
+                                "movie",
+                                settings.movieWatcherCustomMediaDirectory,
+                              )
+                            }
+                            size="sm"
+                            startContent={
+                              !testingMovieWatcherDest && (
+                                <RefreshCw size={12} />
+                              )
+                            }
+                            variant="flat"
+                          >
+                            Test
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-default-400 break-all">
+                          {settings.movieWatcherDestination ||
+                            "No saved media folder yet"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Series Row */}
+                <div
+                  className={`p-4 rounded-xl border border-secondary/30 bg-secondary/5 space-y-4 ${
+                    settings.seriesWatcherEnabled === false ? "opacity-60" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <Tv className="text-secondary" size={20} />
+                      <div>
+                        <h3 className="font-semibold text-secondary">Series</h3>
+                        <p className="text-xs text-default-500">
+                          Move completed Series downloads into the library
+                        </p>
                       </div>
                     </div>
-                  )}
+                    <Switch
+                      color="secondary"
+                      isSelected={settings.seriesWatcherEnabled !== false}
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          seriesWatcherEnabled: checked,
+                        })
+                      }
+                    />
+                  </div>
 
-                {/* Status when enabled */}
-                {settings.downloadWatcherEnabled && (
-                  <div className="space-y-3">
-                    <div
-                      className={`flex items-center justify-between p-3 rounded-lg ${
-                        watcherStatus.isRunning
-                          ? "bg-success/10 border border-success/30"
-                          : "bg-cyan-500/10 border border-cyan-500/30"
-                      }`}
-                    >
+                  <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
+                    <div className="space-y-2">
                       <div className="flex items-center gap-2">
-                        {watcherStatus.isRunning ? (
-                          <>
-                            <Activity
-                              className="text-success animate-pulse"
-                              size={16}
-                            />
-                            <span className="text-sm text-success">
-                              Watching for new downloads every{" "}
-                              {settings.watcherInterval || 30}s
-                            </span>
-                          </>
+                        <Download className="text-default-400" size={14} />
+                        <span className="text-xs font-medium text-default-500">
+                          Download folder
+                        </span>
+                      </div>
+                      <select
+                        className={selectFieldClass}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            seriesWatcherDownloadMode: e.target.value as
+                              | "saved"
+                              | "custom",
+                          })
+                        }
+                        value={settings.seriesWatcherDownloadMode || "saved"}
+                      >
+                        <option value="saved">
+                          Saved
+                          {settings.seriesDownloadDirectory
+                            ? `: ${truncatePath(settings.seriesDownloadDirectory)}`
+                            : " (set in Media Directories)"}
+                        </option>
+                        <option value="custom">Custom…</option>
+                      </select>
+                      {settings.seriesWatcherDownloadMode === "custom" ? (
+                        <>
+                          <DirectoryPicker
+                            label=""
+                            onChange={(path) =>
+                              setSettings({
+                                ...settings,
+                                seriesWatcherCustomDownloadDirectory: path,
+                              })
+                            }
+                            placeholder="Custom download folder"
+                            value={settings.seriesWatcherCustomDownloadDirectory}
+                          />
+                          <Button
+                            color="default"
+                            isDisabled={
+                              !settings.seriesWatcherCustomDownloadDirectory
+                            }
+                            isLoading={testingSeriesDownloadDir}
+                            onPress={() =>
+                              testDownloadDirectory(
+                                "series",
+                                settings.seriesWatcherCustomDownloadDirectory,
+                              )
+                            }
+                            size="sm"
+                            startContent={
+                              !testingSeriesDownloadDir && (
+                                <RefreshCw size={12} />
+                              )
+                            }
+                            variant="flat"
+                          >
+                            Test
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-default-400 break-all">
+                          {settings.seriesDownloadDirectory ||
+                            "No saved download folder yet"}
+                        </p>
+                      )}
+                    </div>
+
+                    <ArrowRight
+                      className="text-secondary flex-shrink-0 hidden md:block mt-8"
+                      size={24}
+                    />
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <FolderOutput className="text-default-400" size={14} />
+                        <span className="text-xs font-medium text-default-500">
+                          Media folder
+                        </span>
+                      </div>
+                      <select
+                        className={selectFieldClass}
+                        onChange={(e) =>
+                          setSettings({
+                            ...settings,
+                            seriesWatcherMediaMode: e.target.value as
+                              | "saved"
+                              | "custom",
+                          })
+                        }
+                        value={settings.seriesWatcherMediaMode || "saved"}
+                      >
+                        <option value="saved">
+                          Saved
+                          {settings.seriesWatcherDestination
+                            ? `: ${truncatePath(settings.seriesWatcherDestination)}`
+                            : " (set in Media Directories)"}
+                        </option>
+                        <option value="custom">Custom…</option>
+                      </select>
+                      {settings.seriesWatcherMediaMode === "custom" ? (
+                        <>
+                          <DirectoryPicker
+                            label=""
+                            onChange={(path) =>
+                              setSettings({
+                                ...settings,
+                                seriesWatcherCustomMediaDirectory: path,
+                              })
+                            }
+                            placeholder="Custom media folder"
+                            value={settings.seriesWatcherCustomMediaDirectory}
+                          />
+                          <Button
+                            color="default"
+                            isDisabled={
+                              !settings.seriesWatcherCustomMediaDirectory
+                            }
+                            isLoading={testingSeriesWatcherDest}
+                            onPress={() =>
+                              testWatcherDestination(
+                                "series",
+                                settings.seriesWatcherCustomMediaDirectory,
+                              )
+                            }
+                            size="sm"
+                            startContent={
+                              !testingSeriesWatcherDest && (
+                                <RefreshCw size={12} />
+                              )
+                            }
+                            variant="flat"
+                          >
+                            Test
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-default-400 break-all">
+                          {settings.seriesWatcherDestination ||
+                            "No saved media folder yet"}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 p-4 rounded-lg border border-secondary/30 bg-secondary/5">
+                  <Button
+                    color="secondary"
+                    isDisabled={!hasWatcherPathPair}
+                    isLoading={previewingWatcher}
+                    onPress={previewWatcherMoves}
+                    size="sm"
+                    startContent={!previewingWatcher && <Eye size={14} />}
+                    variant="flat"
+                  >
+                    Preview moves
+                  </Button>
+                  <Button
+                    color="secondary"
+                    isDisabled={!hasWatcherPathPair}
+                    isLoading={triggeringWatcher}
+                    onPress={triggerWatcherScan}
+                    size="sm"
+                    startContent={!triggeringWatcher && <RefreshCw size={14} />}
+                    variant="solid"
+                  >
+                    Scan now
+                  </Button>
+                  <p className="text-xs text-default-500 flex-1 min-w-[12rem]">
+                    Preview is a dry run (nothing moves). Scan uses your paths
+                    above — they are saved automatically.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-lg border border-secondary/30 bg-secondary/5 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`p-2 rounded-lg ${
+                          settings.downloadWatcherEnabled
+                            ? "bg-secondary/20"
+                            : "bg-content3"
+                        }`}
+                      >
+                        {settings.downloadWatcherEnabled ? (
+                          <Zap className="text-secondary" size={18} />
                         ) : (
-                          <>
-                            <RefreshCw className="text-cyan-500" size={16} />
-                            <span className="text-sm text-cyan-500">
-                              Click Scan Now to process downloads
-                            </span>
-                          </>
+                          <Pause className="text-default-500" size={18} />
                         )}
                       </div>
-                      <Button
-                        color={watcherStatus.isRunning ? "success" : "primary"}
-                        isLoading={triggeringWatcher}
-                        onPress={triggerWatcherScan}
-                        size="sm"
-                        startContent={
-                          !triggeringWatcher && <RefreshCw size={14} />
-                        }
-                        variant="flat"
-                      >
-                        Scan Now
-                      </Button>
+                      <div>
+                        <p className="font-medium">Automatic watch & move</p>
+                        <p className="text-xs text-default-500">
+                          {settings.downloadWatcherEnabled
+                            ? `Watches download folders, then renames and moves finished files every ${settings.watcherInterval || 30}s`
+                            : "Off — use Preview or Scan now when you want a one-time run"}
+                        </p>
+                      </div>
                     </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={settings.downloadWatcherEnabled}
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          downloadWatcherEnabled: checked,
+                          watcherAutoApprove: checked
+                            ? true
+                            : settings.watcherAutoApprove,
+                        })
+                      }
+                    />
+                  </div>
 
-                    {/* Pending Files Queue (when manual approval is enabled) */}
-                    {!settings.watcherAutoApprove &&
+                  <div className="flex items-center gap-3 pt-1 border-t border-content3">
+                    <Clock className="text-secondary flex-shrink-0" size={18} />
+                    <div className="flex-1 min-w-0">
+                      <label
+                        className="text-sm font-medium"
+                        htmlFor="watcherInterval"
+                      >
+                        Check frequency
+                      </label>
+                      <p className="text-xs text-default-500">
+                        Used when automatic watch is on (10–3600 seconds)
+                      </p>
+                    </div>
+                    <Input
+                      className="max-w-32"
+                      endContent={
+                        <span className="text-xs text-default-400">sec</span>
+                      }
+                      id="watcherInterval"
+                      isDisabled={!settings.downloadWatcherEnabled}
+                      max="3600"
+                      min="10"
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || 30;
+                        const clampedValue = Math.max(
+                          10,
+                          Math.min(3600, value),
+                        );
+                        setSettings({
+                          ...settings,
+                          watcherInterval: clampedValue,
+                        });
+                      }}
+                      size="sm"
+                      type="number"
+                      value={String(settings.watcherInterval || 30)}
+                    />
+                  </div>
+
+                  {!settings.downloadWatcherEnabled && (
+                    <p className="text-xs text-default-500">
+                      Scan now still moves matching files immediately (with your
+                      naming toggles). Turn this on to poll in the background on
+                      a schedule.
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  {/* Pending Files Queue (manual approval) */}
+                  {!settings.watcherAutoApprove &&
                       pendingFiles.length > 0 && (
-                        <div className="space-y-3 p-4 rounded-lg border border-warning/30 bg-warning/5">
+                        <div className="space-y-3 p-4 rounded-lg border border-secondary/30 bg-secondary/5">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
-                              <List className="text-warning" size={18} />
-                              <span className="font-medium text-warning">
+                              <List className="text-secondary" size={18} />
+                              <span className="font-medium text-secondary">
                                 Pending Approval ({pendingFiles.length})
                               </span>
                             </div>
                             <Button
-                              color="success"
+                              color="secondary"
                               onPress={approveAllFiles}
                               size="sm"
                               startContent={<CheckCircle2 size={14} />}
@@ -1914,7 +2962,7 @@ const FileManagement = () => {
                                 <div className="flex items-center gap-3 flex-1 min-w-0">
                                   {file.type === "movie" ? (
                                     <Film
-                                      className="text-primary flex-shrink-0"
+                                      className="text-secondary flex-shrink-0"
                                       size={18}
                                     />
                                   ) : (
@@ -1934,7 +2982,7 @@ const FileManagement = () => {
                                 </div>
                                 <div className="flex gap-2 flex-shrink-0 ml-2">
                                   <Button
-                                    color="success"
+                                    color="secondary"
                                     isIconOnly
                                     isLoading={approvingFile === file.id}
                                     onPress={() => approveFile(file.id)}
@@ -1960,81 +3008,26 @@ const FileManagement = () => {
                         </div>
                       )}
 
-                    {/* No pending files message */}
-                    {!settings.watcherAutoApprove &&
-                      pendingFiles.length === 0 && (
-                        <div className="flex items-center gap-2 p-3 rounded-lg bg-content2 border border-content3">
-                          <FileCheck className="text-default-400" size={16} />
-                          <span className="text-sm text-default-500">
-                            No files pending approval
-                          </span>
-                        </div>
-                      )}
-
-                    {/* Quick Stats */}
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="p-3 rounded-lg bg-content2 text-center">
-                        <p className="text-xl font-bold text-cyan-500">
-                          {watcherStatus.stats.filesProcessed}
-                        </p>
-                        <p className="text-xs text-default-500">Total</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-content2 text-center">
-                        <p className="text-xl font-bold text-primary">
-                          {watcherStatus.stats.moviesProcessed}
-                        </p>
-                        <p className="text-xs text-default-500">Movies</p>
-                      </div>
-                      <div className="p-3 rounded-lg bg-content2 text-center">
-                        <p className="text-xl font-bold text-secondary">
-                          {watcherStatus.stats.seriesProcessed}
-                        </p>
-                        <p className="text-xs text-default-500">TV Shows</p>
-                      </div>
+                  {!settings.watcherAutoApprove && pendingFiles.length === 0 && (
+                    <div className="flex items-center gap-2 p-3 rounded-lg bg-content2 border border-content3">
+                      <FileCheck className="text-default-400" size={16} />
+                      <span className="text-sm text-default-500">
+                        No files pending approval
+                      </span>
                     </div>
+                  )}
 
-                    {/* Recent Files */}
-                    {watcherStatus.stats.recentFiles &&
-                      watcherStatus.stats.recentFiles.length > 0 && (
-                        <div className="space-y-2">
-                          <h4 className="text-sm font-semibold flex items-center gap-2 text-default-600">
-                            <Clock size={14} />
-                            Recently Processed
-                          </h4>
-                          <div className="space-y-1 max-h-40 overflow-y-auto">
-                            {watcherStatus.stats.recentFiles
-                              .slice(0, 5)
-                              .map((file: any, idx: number) => (
-                                <div
-                                  className="flex items-center gap-2 p-2 rounded-lg bg-content2/50 text-xs"
-                                  key={idx}
-                                >
-                                  {file.type === "movie" ? (
-                                    <Film
-                                      className="text-primary flex-shrink-0"
-                                      size={14}
-                                    />
-                                  ) : (
-                                    <Tv
-                                      className="text-secondary flex-shrink-0"
-                                      size={14}
-                                    />
-                                  )}
-                                  <span className="truncate flex-1">
-                                    {file.name}
-                                  </span>
-                                  <span className="text-default-400 flex-shrink-0">
-                                    {new Date(
-                                      file.timestamp,
-                                    ).toLocaleTimeString()}
-                                  </span>
-                                </div>
-                              ))}
-                          </div>
-                        </div>
-                      )}
+                  <div className="pt-2 border-t border-content3">
+                    <ActivityLogPanel
+                      category="watch_and_move"
+                      defaultLimit={25}
+                      description="Moves, scans, approvals, and errors — stored permanently."
+                      emptyMessage="No Watch & Move activity yet. Run Scan now or enable automatic watch."
+                      refreshToken={watchMoveLogRefresh}
+                      title="Activity log"
+                    />
                   </div>
-                )}
+                </div>
               </CardBody>
             )}
           </Card>
@@ -2047,11 +3040,11 @@ const FileManagement = () => {
             >
               <div className="flex items-center justify-between w-full">
                 <div className="flex items-center gap-3">
-                  <Film className="text-primary" size={24} />
+                  <Film className="text-secondary" size={24} />
                   <div>
                     <h2 className="text-lg font-semibold">Movie File Naming</h2>
                     <p className="text-sm text-default-500">
-                      Configure how movie files should be named
+                      Format, scan folder, download naming toggles, and preview
                     </p>
                   </div>
                 </div>
@@ -2068,53 +3061,169 @@ const FileManagement = () => {
                   classNames={{
                     input: "font-mono text-sm",
                   }}
+                  id="movieFileFormat"
                   label="Movie File Format"
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    syncFormatInputSelection(e, movieFormatSelection);
                     setSettings({
                       ...settings,
                       movieFileFormat: e.target.value,
-                    })
+                    });
+                  }}
+                  onClick={(e) =>
+                    syncFormatInputSelection(e, movieFormatSelection)
+                  }
+                  onSelect={(e) =>
+                    syncFormatInputSelection(e, movieFormatSelection)
                   }
                   placeholder="{Movie Title} ({Release Year})"
                   value={settings.movieFileFormat}
                   variant="bordered"
                 />
+                <FormatTokenChips
+                  onInsert={(token) =>
+                    insertFormatToken(
+                      "movieFileFormat",
+                      token,
+                      movieFormatSelection,
+                      "movieFileFormat",
+                    )
+                  }
+                  tokens={MOVIE_FORMAT_TOKENS}
+                />
 
-                {/* Available Tokens */}
+                <div className="space-y-2 p-4 rounded-lg border border-content3">
+                  <label className="text-sm font-medium">
+                    Folder to scan for preview & rename
+                  </label>
+                  <select
+                    className={selectFieldClass}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        movieNamingScanTarget: e.target.value as
+                          | "media"
+                          | "download",
+                      })
+                    }
+                    value={settings.movieNamingScanTarget || "media"}
+                  >
+                    <option value="media">
+                      Media folder (from Media Directories)
+                    </option>
+                    <option value="download">
+                      Download folder (from Media Directories)
+                    </option>
+                  </select>
+                  <p className="text-xs text-default-400 break-all">
+                    {movieNamingScanPath() ||
+                      "No path set — configure Media Directories above"}
+                  </p>
+                </div>
+
+                <div className="p-3 rounded-lg border border-content3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Subfolder per movie
+                      </p>
+                      <p className="text-xs text-default-500">
+                        {settings.movieNamingUseFolders
+                          ? "Creates a folder matching the movie name, with the video file inside."
+                          : "Places one renamed file in the scan folder (release folders are removed only if empty, unless cleanup below is on)."}
+                      </p>
+                    </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={settings.movieNamingUseFolders === true}
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          movieNamingUseFolders: checked,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3 pt-1 border-t border-content3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Delete leftover release junk
+                      </p>
+                      <p className="text-xs text-default-500">
+                        After a movie is renamed/moved out of a subfolder, delete
+                        everything left in that folder (samples, .txt, .nfo,
+                        subs, etc.) and remove the folder. Only applies to
+                        folders inside your movie scan path — never the scan
+                        root itself.
+                      </p>
+                    </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={
+                        settings.movieRenameCleanupReleaseFolder === true
+                      }
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          movieRenameCleanupReleaseFolder: checked,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="rounded-md bg-content2 p-2.5 space-y-1">
+                    <p className="text-xs font-medium text-default-500">
+                      Example after rename
+                    </p>
+                    <p className="text-xs font-mono text-secondary break-all">
+                      {movieNamingLayoutExample()}
+                    </p>
+                  </div>
+                </div>
+
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <Info size={14} />
-                    Available Tokens
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { token: "{Movie Title}", desc: "Movie name" },
-                      { token: "{Release Year}", desc: "Year released" },
-                      { token: "{Quality}", desc: "720p, 1080p, 2160p" },
-                      { token: "{Source}", desc: "BluRay, WEB-DL, etc." },
-                      { token: "{Codec}", desc: "x264, x265, HEVC" },
-                      { token: "{Audio}", desc: "AAC, DTS, AC3" },
-                      { token: "{Edition}", desc: "Extended, Unrated" },
-                      { token: "{Release Group}", desc: "YIFY, RARBG" },
-                    ].map(({ token, desc }) => (
-                      <Chip
-                        className="cursor-pointer hover:bg-primary/20"
-                        key={token}
-                        onClick={() =>
-                          setSettings({
-                            ...settings,
-                            movieFileFormat: settings.movieFileFormat + token,
-                          })
-                        }
-                        size="sm"
-                        variant="flat"
-                      >
-                        <code className="text-xs">{token}</code>
-                        <span className="ml-1 text-xs text-default-500">
-                          {desc}
-                        </span>
-                      </Chip>
-                    ))}
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-content3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Apply naming when approving downloads
+                      </p>
+                      <p className="text-xs text-default-500">
+                        Movie downloads use this format on approve
+                      </p>
+                    </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={
+                        settings.movieApplyNamingOnWatcherApprove ?? true
+                      }
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          movieApplyNamingOnWatcherApprove: checked,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-content3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Apply naming on auto-move
+                      </p>
+                      <p className="text-xs text-default-500">
+                        When Watch & Move auto-moves movies
+                      </p>
+                    </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={
+                        settings.movieApplyNamingOnAutomaticMove ?? false
+                      }
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          movieApplyNamingOnAutomaticMove: checked,
+                        })
+                      }
+                    />
                   </div>
                 </div>
 
@@ -2125,57 +3234,67 @@ const FileManagement = () => {
                     {[
                       {
                         format: "{Movie Title} ({Release Year})",
-                        example: "Shrek (2001).mp4",
                       },
                       {
                         format: "{Movie Title} ({Release Year}) [{Quality}]",
-                        example: "Shrek (2001) [1080p].mp4",
                       },
                       {
                         format:
                           "{Movie Title} ({Release Year}) {Quality} {Source} {Codec}",
-                        example: "Shrek (2001) 1080p BluRay x264.mp4",
                       },
                       {
                         format:
                           "{Movie Title}.{Release Year}.{Quality}.{Codec}-{Release Group}",
-                        example: "Shrek.2001.1080p.x264-YIFY.mp4",
                       },
-                    ].map(({ format, example }) => (
-                      <button
-                        className="flex justify-between items-center p-3 rounded-lg border border-content3 hover:border-primary hover:bg-primary/5 transition-all text-left"
-                        key={format}
-                        onClick={() =>
-                          setSettings({ ...settings, movieFileFormat: format })
-                        }
-                        type="button"
-                      >
-                        <code className="text-xs text-primary">{format}</code>
-                        <span className="text-xs text-default-500 ml-2">
-                          → {example}
-                        </span>
-                      </button>
-                    ))}
+                    ].map(({ format }) => {
+                      const example = `${applyMovieFormatTokensToSample(format)}.${FILE_NAMING_EXAMPLES.ext}`;
+                      return (
+                        <button
+                          className="flex justify-between items-center p-3 rounded-lg border border-content3 hover:border-secondary hover:bg-secondary/5 transition-all text-left"
+                          key={format}
+                          onClick={() =>
+                            setSettings({ ...settings, movieFileFormat: format })
+                          }
+                          type="button"
+                        >
+                          <code className="text-xs text-secondary">{format}</code>
+                          <span className="text-xs text-default-500 ml-2">
+                            → {example}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Rename Movies Button */}
                 <div className="pt-4 border-t border-content3">
                   <Button
                     className="w-full sm:w-auto"
-                    color="primary"
-                    isDisabled={!settings.movieDirectory}
+                    color="secondary"
+                    isDisabled={!movieNamingScanPath()}
                     isLoading={loadingPreview && renameType === "movies"}
                     onPress={() => previewRenames("movies")}
                     startContent={
                       !(loadingPreview && renameType === "movies") && (
-                        <Pencil size={16} />
+                        <Eye size={16} />
                       )
                     }
                     variant="flat"
                   >
-                    Rename Movies Only
+                    Preview movie changes
                   </Button>
+                </div>
+
+                {renderRenameBatchProgress("movies")}
+
+                <div className="p-3 rounded-lg border border-content3">
+                  <ActivityLogPanel
+                    actionPrefix="movie_"
+                    category="file_rename"
+                    description="Each movie rename and batch run — expand a row for full paths."
+                    refreshToken={activityLogRefresh}
+                    title="Rename history"
+                  />
                 </div>
               </CardBody>
             )}
@@ -2195,7 +3314,7 @@ const FileManagement = () => {
                       Series File Naming
                     </h2>
                     <p className="text-sm text-default-500">
-                      Configure how TV series files should be named
+                      Format, scan folder, download naming toggles, and preview
                     </p>
                   </div>
                 </div>
@@ -2212,53 +3331,110 @@ const FileManagement = () => {
                   classNames={{
                     input: "font-mono text-sm",
                   }}
+                  id="seriesFileFormat"
                   label="Series File Format"
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    syncFormatInputSelection(e, seriesFormatSelection);
                     setSettings({
                       ...settings,
                       seriesFileFormat: e.target.value,
-                    })
+                    });
+                  }}
+                  onClick={(e) =>
+                    syncFormatInputSelection(e, seriesFormatSelection)
+                  }
+                  onSelect={(e) =>
+                    syncFormatInputSelection(e, seriesFormatSelection)
                   }
                   placeholder="{Series Title}/Season {season:00}/{Series Title} - S{season:00}E{episode:00} - {Episode Title}"
                   value={settings.seriesFileFormat}
                   variant="bordered"
                 />
+                <FormatTokenChips
+                  onInsert={(token) =>
+                    insertFormatToken(
+                      "seriesFileFormat",
+                      token,
+                      seriesFormatSelection,
+                      "seriesFileFormat",
+                    )
+                  }
+                  tokens={SERIES_FORMAT_TOKENS}
+                />
 
-                {/* Available Tokens */}
+                <div className="space-y-2 p-4 rounded-lg border border-content3">
+                  <label className="text-sm font-medium">
+                    Folder to scan for preview & rename
+                  </label>
+                  <select
+                    className={selectFieldClass}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        seriesNamingScanTarget: e.target.value as
+                          | "media"
+                          | "download",
+                      })
+                    }
+                    value={settings.seriesNamingScanTarget || "media"}
+                  >
+                    <option value="media">
+                      Media folder (from Media Directories)
+                    </option>
+                    <option value="download">
+                      Download folder (from Media Directories)
+                    </option>
+                  </select>
+                  <p className="text-xs text-default-400 break-all">
+                    {seriesNamingScanPath() ||
+                      "No path set — configure Media Directories above"}
+                  </p>
+                </div>
+
                 <div className="space-y-3">
-                  <h4 className="text-sm font-semibold flex items-center gap-2">
-                    <Info size={14} />
-                    Available Tokens
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { token: "{Series Title}", desc: "Show name" },
-                      { token: "{season:00}", desc: "Season (01, 02)" },
-                      { token: "{episode:00}", desc: "Episode (01, 02)" },
-                      { token: "{Episode Title}", desc: "Episode name" },
-                      { token: "{Quality}", desc: "720p, 1080p, 2160p" },
-                      { token: "{Source}", desc: "BluRay, WEB-DL" },
-                      { token: "{Codec}", desc: "x264, x265, HEVC" },
-                      { token: "{Audio}", desc: "AAC, DTS, AC3" },
-                    ].map(({ token, desc }) => (
-                      <Chip
-                        className="cursor-pointer hover:bg-secondary/20"
-                        key={token}
-                        onClick={() =>
-                          setSettings({
-                            ...settings,
-                            seriesFileFormat: settings.seriesFileFormat + token,
-                          })
-                        }
-                        size="sm"
-                        variant="flat"
-                      >
-                        <code className="text-xs">{token}</code>
-                        <span className="ml-1 text-xs text-default-500">
-                          {desc}
-                        </span>
-                      </Chip>
-                    ))}
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-content3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Apply naming when approving downloads
+                      </p>
+                      <p className="text-xs text-default-500">
+                        Series downloads use this format on approve
+                      </p>
+                    </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={
+                        settings.seriesApplyNamingOnWatcherApprove ?? true
+                      }
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          seriesApplyNamingOnWatcherApprove: checked,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center justify-between p-3 rounded-lg border border-content3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Apply naming on auto-move
+                      </p>
+                      <p className="text-xs text-default-500">
+                        When Watch & Move auto-moves Series
+                      </p>
+                    </div>
+                    <Switch
+                      color="secondary"
+                      isSelected={
+                        settings.seriesApplyNamingOnAutomaticMove ?? false
+                      }
+                      onValueChange={(checked) =>
+                        setSettings({
+                          ...settings,
+                          seriesApplyNamingOnAutomaticMove: checked,
+                        })
+                      }
+                    />
                   </div>
                 </div>
 
@@ -2270,209 +3446,73 @@ const FileManagement = () => {
                       {
                         format:
                           "{Series Title} - S{season:00}E{episode:00} - {Episode Title}",
-                        example: "Breaking Bad - S01E01 - Pilot.mp4",
                       },
                       {
                         format:
                           "{Series Title}/Season {season:00}/{Series Title} - S{season:00}E{episode:00}",
-                        example:
-                          "Breaking Bad/Season 01/Breaking Bad - S01E01.mp4",
                       },
                       {
                         format:
                           "{Series Title}.S{season:00}E{episode:00}.{Quality}.{Codec}",
-                        example: "Breaking.Bad.S01E01.1080p.x264.mp4",
                       },
-                    ].map(({ format, example }) => (
-                      <button
-                        className="flex justify-between items-center p-3 rounded-lg border border-content3 hover:border-secondary hover:bg-secondary/5 transition-all text-left"
-                        key={format}
-                        onClick={() =>
-                          setSettings({ ...settings, seriesFileFormat: format })
-                        }
-                        type="button"
-                      >
-                        <code className="text-xs text-secondary">{format}</code>
-                        <span className="text-xs text-default-500 ml-2">
-                          → {example}
-                        </span>
-                      </button>
-                    ))}
+                    ].map(({ format }) => {
+                      const s = FILE_NAMING_EXAMPLES;
+                      let example: string;
+                      if (format.includes("/")) {
+                        example = `${s.seriesTitle}/Season ${s.seasonPadded}/${s.seriesTitle} - S${s.seasonPadded}E${s.episodePadded}.${s.ext}`;
+                      } else if (format.includes(".S{")) {
+                        example = `${s.seriesTitle.replace(/ /g, ".")}.S${s.seasonPadded}E${s.episodePadded}.${s.quality}.${s.codec}.${s.ext}`;
+                      } else {
+                        example = `${applySeriesFormatTokensToSample(format)}.${s.ext}`;
+                      }
+                      return (
+                        <button
+                          className="flex justify-between items-center p-3 rounded-lg border border-content3 hover:border-secondary hover:bg-secondary/5 transition-all text-left"
+                          key={format}
+                          onClick={() =>
+                            setSettings({ ...settings, seriesFileFormat: format })
+                          }
+                          type="button"
+                        >
+                          <code className="text-xs text-secondary">{format}</code>
+                          <span className="text-xs text-default-500 ml-2">
+                            → {example}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Rename Series Button */}
                 <div className="pt-4 border-t border-content3">
                   <Button
                     className="w-full sm:w-auto"
                     color="secondary"
-                    isDisabled={!settings.seriesDirectory}
+                    isDisabled={!seriesNamingScanPath()}
                     isLoading={loadingPreview && renameType === "series"}
                     onPress={() => previewRenames("series")}
                     startContent={
                       !(loadingPreview && renameType === "series") && (
-                        <Pencil size={16} />
+                        <Eye size={16} />
                       )
                     }
                     variant="flat"
                   >
-                    Rename Series Only
+                    Preview Series changes
                   </Button>
                 </div>
-              </CardBody>
-            )}
-          </Card>
 
-          {/* Bulk Rename Action */}
-          <Card className="border border-content2 bg-gradient-to-r from-primary/5 to-secondary/5">
-            <CardBody className="py-6">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <Pencil className="text-primary" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Bulk File Rename</h3>
-                    <p className="text-sm text-default-500">
-                      Rename all movies and series at once
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  color="primary"
-                  isDisabled={
-                    !settings.movieDirectory && !settings.seriesDirectory
-                  }
-                  isLoading={loadingPreview && renameType === "bulk"}
-                  onPress={() => previewRenames("bulk")}
-                  startContent={
-                    !(loadingPreview && renameType === "bulk") && (
-                      <Eye size={18} />
-                    )
-                  }
-                  variant="shadow"
-                >
-                  Preview All Renames
-                </Button>
-              </div>
-            </CardBody>
-          </Card>
+                {renderRenameBatchProgress("series")}
 
-          {/* Auto-Rename Section */}
-          <Card className="border border-warning/30 bg-warning/5">
-            <CardHeader
-              className="cursor-pointer hover:bg-warning/10 transition-colors"
-              onClick={() => toggleSection("autoRename")}
-            >
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  <Zap className="text-warning" size={24} />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold">Auto-Rename</h2>
-                      <Chip color="warning" size="sm" variant="flat">
-                        BETA
-                      </Chip>
-                    </div>
-                    <p className="text-sm text-default-500">
-                      Automatically rename files on a schedule
-                    </p>
-                  </div>
-                </div>
-                {expandedSections.has("autoRename") ? (
-                  <ChevronDown size={20} />
-                ) : (
-                  <ChevronRight size={20} />
-                )}
-              </div>
-            </CardHeader>
-            {expandedSections.has("autoRename") && (
-              <CardBody className="pt-0 space-y-4">
-                {/* Beta Warning Banner */}
-                <div className="flex items-start gap-3 p-4 rounded-lg bg-warning/10 border border-warning/30">
-                  <AlertTriangle
-                    className="text-warning flex-shrink-0 mt-0.5"
-                    size={20}
-                  />
-                  <div>
-                    <p className="text-sm font-medium text-warning">
-                      Beta Feature Warning
-                    </p>
-                    <p className="text-xs text-default-500 mt-1">
-                      Auto-rename is in beta and may cause unexpected changes to
-                      your media library. We recommend backing up your files
-                      before enabling this feature. Use at your own risk.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Auto-Rename Toggle */}
-                <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`p-2 rounded-lg ${settings.autoRename ? "bg-success/20" : "bg-content3"}`}
-                    >
-                      <Zap
-                        className={
-                          settings.autoRename
-                            ? "text-success"
-                            : "text-default-500"
-                        }
-                        size={18}
-                      />
-                    </div>
-                    <div>
-                      <p className="font-medium">Enable Auto-Rename</p>
-                      <p className="text-xs text-default-500">
-                        Automatically scan and rename files based on your naming
-                        formats
-                      </p>
-                    </div>
-                  </div>
-                  <Switch
-                    color="warning"
-                    isSelected={settings.autoRename}
-                    onValueChange={handleAutoRenameToggle}
+                <div className="p-3 rounded-lg border border-content3">
+                  <ActivityLogPanel
+                    actionPrefix="series_"
+                    category="file_rename"
+                    description="Each Series episode rename and batch run — expand a row for full paths."
+                    refreshToken={activityLogRefresh}
+                    title="Rename history"
                   />
                 </div>
-
-                {/* Interval Setting */}
-                {settings.autoRename && (
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-2">
-                      <Clock size={14} />
-                      Scan Interval (minutes)
-                    </label>
-                    <Input
-                      description="How often to scan your directories for files to rename (minimum 15 minutes)"
-                      max={1440}
-                      min={15}
-                      onChange={(e) =>
-                        setSettings({
-                          ...settings,
-                          autoRenameInterval: Math.max(
-                            15,
-                            Math.min(1440, parseInt(e.target.value) || 60),
-                          ),
-                        })
-                      }
-                      type="number"
-                      value={settings.autoRenameInterval.toString()}
-                      variant="bordered"
-                    />
-                  </div>
-                )}
-
-                {/* Status indicator */}
-                {settings.autoRename && (
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/30">
-                    <Check className="text-success" size={16} />
-                    <span className="text-sm text-success">
-                      Auto-rename is active. Files will be scanned every{" "}
-                      {settings.autoRenameInterval} minutes.
-                    </span>
-                  </div>
-                )}
               </CardBody>
             )}
           </Card>
@@ -2482,7 +3522,10 @@ const FileManagement = () => {
       {/* Rename Preview Modal */}
       <Modal
         isOpen={showRenameModal}
-        onClose={() => setShowRenameModal(false)}
+        onClose={() => {
+          setShowRenameModal(false);
+          setRenamePreviewSearch("");
+        }}
         scrollBehavior="inside"
         size="4xl"
       >
@@ -2490,120 +3533,293 @@ const FileManagement = () => {
           <ModalHeader className="flex items-center gap-2">
             <Pencil size={20} />
             Preview File Renames
-            {renameType !== "bulk" && (
-              <Chip
-                color={renameType === "movies" ? "primary" : "secondary"}
-                size="sm"
-              >
-                {renameType === "movies" ? "Movies Only" : "Series Only"}
-              </Chip>
-            )}
+            <Chip
+              color="secondary"
+              size="sm"
+            >
+              {renameType === "movies" ? "Movies" : "Series"}
+            </Chip>
           </ModalHeader>
           <ModalBody>
             {renamePreview.length === 0 ? (
-              <div className="text-center py-8">
-                <Check className="mx-auto mb-4 text-success" size={48} />
-                <p className="text-lg font-medium">
-                  All files already match your naming format!
-                </p>
-                <p className="text-default-500">No files need to be renamed.</p>
+              <div className="text-center py-8 space-y-3">
+                {(() => {
+                  const s =
+                    renameType === "movies"
+                      ? renamePreviewStats.movies
+                      : renamePreviewStats.series;
+                  const scanned = s?.scanned ?? 0;
+                  const matched = s?.matched ?? 0;
+                  const already = s?.alreadyNamed ?? 0;
+                  const skipped = (s?.skipped as RenamePreviewStats["skipped"]) ?? [];
+                  const unparseable = skipped.filter(
+                    (x) => x.reason === "cant_parse_title",
+                  ).length;
+
+                  if (scanned === 0) {
+                    return (
+                      <>
+                        <Info className="mx-auto mb-4 text-default-400" size={48} />
+                        <p className="text-lg font-medium">No video files found</p>
+                        <p className="text-default-500 text-sm">
+                          Check your scan folder (media vs download) and that
+                          release folders contain video files.
+                        </p>
+                      </>
+                    );
+                  }
+
+                  if (matched === 0 && unparseable > 0) {
+                    return (
+                      <>
+                        <AlertTriangle className="mx-auto mb-4 text-secondary" size={48} />
+                        <p className="text-lg font-medium">
+                          Could not read a title from these files
+                        </p>
+                        <p className="text-default-500 text-sm max-w-md mx-auto">
+                          Scanned {scanned} file(s). Release folder or filename
+                          needs a recognizable title and year (e.g.{" "}
+                          <code className="text-xs">The.Death.of.Stalin.2017.720p</code>
+                          ).
+                        </p>
+                      </>
+                    );
+                  }
+
+                  if (already > 0 && matched === already) {
+                    return (
+                      <>
+                        <Check className="mx-auto mb-4 text-secondary" size={48} />
+                        <p className="text-lg font-medium">
+                          All matched files already use your naming format
+                        </p>
+                        <p className="text-default-500 text-sm">
+                          Scanned {scanned}, matched {matched}, already correct{" "}
+                          {already}.
+                        </p>
+                      </>
+                    );
+                  }
+
+                  return (
+                    <>
+                      <Info className="mx-auto mb-4 text-secondary" size={48} />
+                      <p className="text-lg font-medium">Nothing to rename</p>
+                      <p className="text-default-500 text-sm">
+                        Scanned {scanned}, matched {matched}, skipped{" "}
+                        {skipped.length}.
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="flex items-center gap-4 p-3 rounded-lg bg-primary/10">
-                  <Info className="text-primary" size={20} />
-                  <div>
-                    <p className="font-medium">
-                      {renamePreview.length} file(s) will be renamed
-                    </p>
-                    <p className="text-sm text-default-500">
-                      {renamePreview.filter((r) => r.type === "movie").length}{" "}
-                      movies,{" "}
-                      {renamePreview.filter((r) => r.type === "series").length}{" "}
-                      series episodes
-                    </p>
-                  </div>
-                </div>
+                <SectionInfoCallout>
+                  <p className="font-medium">
+                    {renamePreview.length} file(s) will be renamed
+                  </p>
+                  <p className="mt-1">
+                    {renamePreview.filter((r) => r.type === "movie").length}{" "}
+                    movies,{" "}
+                    {renamePreview.filter((r) => r.type === "series").length}{" "}
+                    Series episodes
+                    {renamePreview.some((r) => r.needsReview) ? (
+                      <span className="text-danger block mt-1">
+                        {renamePreview.filter((r) => r.needsReview).length}{" "}
+                        flagged for review (highlighted in red)
+                      </span>
+                    ) : null}
+                  </p>
+                </SectionInfoCallout>
+
+                <Input
+                  aria-label="Search rename preview"
+                  classNames={{ inputWrapper: "bg-content1" }}
+                  onValueChange={setRenamePreviewSearch}
+                  placeholder="Search filenames, paths, resolved titles…"
+                  size="sm"
+                  startContent={
+                    <Search className="text-default-400" size={16} />
+                  }
+                  value={renamePreviewSearch}
+                  variant="bordered"
+                  isClearable
+                  onClear={() => setRenamePreviewSearch("")}
+                />
+                {renamePreviewSearch.trim() ? (
+                  <p className="text-xs text-default-500 -mt-2">
+                    Showing {filteredRenamePreview.length} of{" "}
+                    {renamePreview.length} file
+                    {renamePreview.length === 1 ? "" : "s"}
+                    {filteredRenamePreview.length === 0
+                      ? " — try a different search"
+                      : ""}
+                  </p>
+                ) : null}
 
                 {/* Movies */}
-                {renamePreview.filter((r) => r.type === "movie").length > 0 && (
+                {filteredRenamePreview.filter((r) => r.type === "movie")
+                  .length > 0 && (
                   <div className="space-y-2">
                     <h4 className="font-semibold flex items-center gap-2">
-                      <Film className="text-primary" size={16} />
+                      <Film className="text-secondary" size={16} />
                       Movies
+                      {renamePreviewSearch.trim() ? (
+                        <span className="text-xs font-normal text-default-400">
+                          (
+                          {
+                            filteredRenamePreview.filter(
+                              (r) => r.type === "movie",
+                            ).length
+                          }
+                          )
+                        </span>
+                      ) : null}
                     </h4>
-                    {renamePreview
+                    {filteredRenamePreview
                       .filter((r) => r.type === "movie")
-                      .map((item, index) => (
+                      .map((item) => (
                         <div
-                          className="p-3 rounded-lg border border-content3 space-y-2"
-                          key={`movie-${index}`}
+                          className={`p-3 rounded-lg border space-y-3 min-w-0 overflow-hidden ${
+                            item.needsReview
+                              ? "border-danger bg-danger/10"
+                              : "border-content3"
+                          }`}
+                          key={item.currentPath}
                         >
-                          <div className="text-sm">
-                            <span className="text-default-500">Current:</span>
-                            <p className="font-mono text-xs bg-content2 p-1 rounded mt-1">
-                              {item.currentName}
-                            </p>
-                          </div>
-                          <div className="text-sm">
-                            <span className="text-default-500">New:</span>
-                            <Input
-                              classNames={{ input: "font-mono text-xs" }}
-                              onChange={(e) => {
-                                const updated = [...renamePreview];
-                                const actualIndex = renamePreview.findIndex(
-                                  (r) => r === item,
-                                );
-                                updated[actualIndex].newName = e.target.value;
-                                setRenamePreview(updated);
-                              }}
+                          {item.needsReview && item.reviewReasons?.length ? (
+                            <div className="flex flex-wrap gap-2">
+                              {item.reviewReasons.map((reason) => (
+                                <Chip
+                                  color="danger"
+                                  key={reason}
+                                  size="sm"
+                                  variant="flat"
+                                >
+                                  {RENAME_REVIEW_LABELS[reason] || reason}
+                                </Chip>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {item.resolvedTitle ? (
+                              <p className="text-xs text-default-500">
+                                Resolved as:{" "}
+                                <span className="font-medium text-foreground">
+                                  {item.resolvedTitle}
+                                </span>
+                                {item.matchSource ? ` (${item.matchSource})` : ""}
+                                {item.tmdbId ? ` · TMDB ${item.tmdbId}` : ""}
+                              </p>
+                            ) : null}
+                            <Button
+                              isDisabled={applyingTmdb}
+                              onPress={() => setTmdbPickItem(item)}
                               size="sm"
-                              value={item.newName}
                               variant="bordered"
-                            />
+                            >
+                              Change TMDB match
+                            </Button>
+                          </div>
+                          <RenameLocationPreview
+                            item={item}
+                            needsReview={item.needsReview}
+                            onNewNameChange={(value) => {
+                              const updated = [...renamePreview];
+                              const actualIndex = renamePreview.findIndex(
+                                (r) => r === item,
+                              );
+                              updated[actualIndex].newName = value;
+                              setRenamePreview(updated);
+                            }}
+                          />
+                          <div className="flex justify-end gap-2 pt-1">
+                            <Button
+                              color="secondary"
+                              isDisabled={
+                                renaming || renamingPath !== null || !item.newName?.trim()
+                              }
+                              isLoading={renamingPath === item.currentPath}
+                              onPress={() => executeSingleRename(item)}
+                              size="sm"
+                              startContent={
+                                renamingPath !== item.currentPath && (
+                                  <Check size={14} />
+                                )
+                              }
+                              variant="flat"
+                            >
+                              Rename this file
+                            </Button>
                           </div>
                         </div>
                       ))}
                   </div>
                 )}
 
+                {renamePreviewSearch.trim() &&
+                filteredRenamePreview.length === 0 ? (
+                  <div className="text-center py-10 text-default-500 text-sm">
+                    No renames match &ldquo;{renamePreviewSearch.trim()}&rdquo;
+                  </div>
+                ) : null}
+
                 {/* Series */}
-                {renamePreview.filter((r) => r.type === "series").length >
-                  0 && (
+                {filteredRenamePreview.filter((r) => r.type === "series")
+                  .length > 0 && (
                   <div className="space-y-2">
                     <h4 className="font-semibold flex items-center gap-2">
                       <Tv className="text-secondary" size={16} />
-                      Series Episodes
+                      Series
+                      {renamePreviewSearch.trim() ? (
+                        <span className="text-xs font-normal text-default-400">
+                          (
+                          {
+                            filteredRenamePreview.filter(
+                              (r) => r.type === "series",
+                            ).length
+                          }
+                          )
+                        </span>
+                      ) : null}
                     </h4>
-                    {renamePreview
+                    {filteredRenamePreview
                       .filter((r) => r.type === "series")
-                      .map((item, index) => (
+                      .map((item) => (
                         <div
-                          className="p-3 rounded-lg border border-content3 space-y-2"
-                          key={`series-${index}`}
+                          className="p-3 rounded-lg border border-content3 space-y-3 min-w-0 overflow-hidden"
+                          key={item.currentPath}
                         >
-                          <div className="text-sm">
-                            <span className="text-default-500">Current:</span>
-                            <p className="font-mono text-xs bg-content2 p-1 rounded mt-1">
-                              {item.currentName}
-                            </p>
-                          </div>
-                          <div className="text-sm">
-                            <span className="text-default-500">New:</span>
-                            <Input
-                              classNames={{ input: "font-mono text-xs" }}
-                              onChange={(e) => {
-                                const updated = [...renamePreview];
-                                const actualIndex = renamePreview.findIndex(
-                                  (r) => r === item,
-                                );
-                                updated[actualIndex].newName = e.target.value;
-                                setRenamePreview(updated);
-                              }}
+                          <RenameLocationPreview
+                            item={item}
+                            onNewNameChange={(value) => {
+                              const updated = [...renamePreview];
+                              const actualIndex = renamePreview.findIndex(
+                                (r) => r === item,
+                              );
+                              updated[actualIndex].newName = value;
+                              setRenamePreview(updated);
+                            }}
+                          />
+                          <div className="flex justify-end gap-2 pt-1">
+                            <Button
+                              color="secondary"
+                              isDisabled={
+                                renaming || renamingPath !== null || !item.newName?.trim()
+                              }
+                              isLoading={renamingPath === item.currentPath}
+                              onPress={() => executeSingleRename(item)}
                               size="sm"
-                              value={item.newName}
-                              variant="bordered"
-                            />
+                              startContent={
+                                renamingPath !== item.currentPath && (
+                                  <Check size={14} />
+                                )
+                              }
+                              variant="flat"
+                            >
+                              Rename this file
+                            </Button>
                           </div>
                         </div>
                       ))}
@@ -2612,85 +3828,150 @@ const FileManagement = () => {
               </div>
             )}
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="flex flex-wrap gap-2 justify-end">
             <Button onPress={() => setShowRenameModal(false)} variant="light">
               Cancel
             </Button>
             {renamePreview.length > 0 && (
-              <Button
-                color="primary"
-                isLoading={renaming}
-                onPress={executeRenames}
-                startContent={!renaming && <Check size={18} />}
-              >
-                Rename All Files
-              </Button>
+              <>
+                <Button
+                  color="secondary"
+                  isDisabled={
+                    renamingPath !== null ||
+                    renaming ||
+                    renamePreviewNoConflictCount === 0
+                  }
+                  isLoading={renaming}
+                  onPress={executeRenamesWithoutConflict}
+                  variant="flat"
+                >
+                  Rename with no conflict ({renamePreviewNoConflictCount})
+                </Button>
+                <Button
+                  color="secondary"
+                  isDisabled={renamingPath !== null}
+                  isLoading={renaming}
+                  onPress={executeRenames}
+                  startContent={!renaming && <Check size={18} />}
+                >
+                  Rename all ({renamePreview.length})
+                </Button>
+              </>
             )}
           </ModalFooter>
         </ModalContent>
       </Modal>
 
-      {/* Beta Warning Modal */}
-      <Modal
-        isOpen={showBetaWarning}
-        onClose={() => {
-          setShowBetaWarning(false);
-          setPendingAutoRenameEnable(false);
+      <RenameTmdbPickerModal
+        fileLabel={tmdbPickItem?.currentName}
+        initialQuery={
+          tmdbPickItem?.resolvedTitle ||
+          tmdbPickItem?.currentName.replace(/\.[^.]+$/, "") ||
+          ""
+        }
+        isOpen={tmdbPickItem !== null}
+        onClose={() => setTmdbPickItem(null)}
+        onSelect={(pick) => {
+          if (tmdbPickItem) void applyManualTmdbMatch(tmdbPickItem, pick);
         }}
+      />
+
+      <Modal
+        isOpen={watcherPreviewOpen}
+        onClose={() => setWatcherPreviewOpen(false)}
+        scrollBehavior="inside"
+        size="2xl"
       >
         <ModalContent>
-          <ModalHeader className="flex items-center gap-2 text-warning">
-            <AlertTriangle size={24} />
-            Beta Feature Warning
+          <ModalHeader className="flex items-center gap-2">
+            <Eye className="text-secondary" size={20} />
+            Preview moves (dry run)
           </ModalHeader>
-          <ModalBody>
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 p-4 rounded-lg bg-warning/10 border border-warning/30">
-                <Shield className="text-warning flex-shrink-0" size={32} />
-                <p className="text-sm">
-                  <strong>Important:</strong> Auto-rename is an experimental
-                  feature that may cause unexpected changes to your media
-                  library file names and structure.
-                </p>
-              </div>
+          <ModalBody className="gap-4">
+            <p className="text-sm text-default-500">{watcherPreviewMessage}</p>
+            <p className="text-xs text-default-400">
+              Mode:{" "}
+              {watcherPreviewAutoApprove
+                ? "Auto-move — items below would be moved immediately on Scan now"
+                : "Manual — Scan now would add these to the approval queue"}
+            </p>
 
+            {watcherPreviewReady.length === 0 ? (
+              <div className="p-4 rounded-lg bg-content2 text-sm text-default-500">
+                Nothing ready to move right now.
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {watcherPreviewReady.map((item, idx) => (
+                  <div
+                    className="p-3 rounded-lg border border-content3 bg-content2 text-sm"
+                    key={`${item.sourcePath}-${idx}`}
+                  >
+                    <div className="flex items-center gap-2 font-medium">
+                      {item.type === "movie" ? (
+                        <Film className="text-secondary" size={16} />
+                      ) : (
+                        <Tv className="text-secondary" size={16} />
+                      )}
+                      <span className="truncate">{item.name}</span>
+                      {item.kind === "folder" && item.fileCount != null && (
+                        <Chip size="sm" variant="flat">
+                          {item.fileCount} files
+                        </Chip>
+                      )}
+                    </div>
+                    <p className="text-xs text-default-400 mt-1 truncate">
+                      From: {item.sourcePath}
+                    </p>
+                    {item.destinationPath && (
+                      <p className="text-xs text-default-500 truncate">
+                        → {item.destinationPath}
+                        {item.size != null && ` (${formatBytes(item.size)})`}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {watcherPreviewSkipped.length > 0 && (
               <div className="space-y-2">
-                <p className="text-sm font-medium">
-                  Before enabling, please note:
+                <p className="text-sm font-medium text-secondary">
+                  Skipped ({watcherPreviewSkipped.length})
                 </p>
-                <ul className="text-sm text-default-500 space-y-1 list-disc list-inside">
-                  <li>
-                    Files will be renamed automatically based on your naming
-                    format
-                  </li>
-                  <li>This action cannot be easily undone</li>
-                  <li>We recommend backing up your media library first</li>
-                  <li>Some media players may lose track of renamed files</li>
-                  <li>Metadata files (NFO, subtitles) may become orphaned</li>
-                </ul>
+                <div className="space-y-1 max-h-40 overflow-y-auto text-xs text-default-500">
+                  {watcherPreviewSkipped.map((item, idx) => (
+                    <div
+                      className="p-2 rounded-lg bg-secondary/5 border border-secondary/20"
+                      key={`skip-${idx}`}
+                    >
+                      <span className="font-medium">{item.name}</span>
+                      {": "}
+                      {skipReasonLabel(item.reason)}
+                    </div>
+                  ))}
+                </div>
               </div>
-
-              <p className="text-sm text-warning font-medium">
-                Do you understand the risks and want to enable auto-rename?
-              </p>
-            </div>
+            )}
           </ModalBody>
           <ModalFooter>
             <Button
-              onPress={() => {
-                setShowBetaWarning(false);
-                setPendingAutoRenameEnable(false);
-              }}
+              onPress={() => setWatcherPreviewOpen(false)}
               variant="light"
             >
-              Cancel
+              Close
             </Button>
             <Button
-              color="warning"
-              onPress={confirmAutoRenameEnable}
-              startContent={<Zap size={16} />}
+              color="secondary"
+              isDisabled={!hasWatcherPathPair}
+              isLoading={triggeringWatcher}
+              onPress={async () => {
+                setWatcherPreviewOpen(false);
+                await triggerWatcherScan();
+              }}
+              startContent={!triggeringWatcher && <RefreshCw size={14} />}
             >
-              I Understand, Enable Auto-Rename
+              Run scan now
             </Button>
           </ModalFooter>
         </ModalContent>
@@ -2704,16 +3985,16 @@ const FileManagement = () => {
         <ModalContent>
           <ModalHeader className="flex items-center gap-2">
             {infoModal.type === "success" && (
-              <Check className="text-success" size={20} />
+              <Check className="text-secondary" size={20} />
             )}
             {infoModal.type === "error" && (
               <X className="text-danger" size={20} />
             )}
             {infoModal.type === "warning" && (
-              <AlertTriangle className="text-warning" size={20} />
+              <AlertTriangle className="text-secondary" size={20} />
             )}
             {infoModal.type === "info" && (
-              <Info className="text-primary" size={20} />
+              <Info className="text-secondary" size={20} />
             )}
             {infoModal.title}
           </ModalHeader>
@@ -2722,7 +4003,7 @@ const FileManagement = () => {
           </ModalBody>
           <ModalFooter>
             <Button
-              color="primary"
+              color="secondary"
               onPress={() => setInfoModal({ ...infoModal, isOpen: false })}
             >
               OK
@@ -2738,7 +4019,7 @@ const FileManagement = () => {
       >
         <ModalContent>
           <ModalHeader className="flex items-center gap-2">
-            <AlertTriangle className="text-warning" size={20} />
+            <AlertTriangle className="text-secondary" size={20} />
             {confirmModal.title}
           </ModalHeader>
           <ModalBody>
@@ -2753,7 +4034,7 @@ const FileManagement = () => {
             >
               Cancel
             </Button>
-            <Button color="primary" onPress={confirmModal.onConfirm}>
+            <Button color="secondary" onPress={confirmModal.onConfirm}>
               Confirm
             </Button>
           </ModalFooter>

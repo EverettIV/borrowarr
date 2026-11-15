@@ -184,11 +184,11 @@ async function importSeriesFromDirectory(userId, options = {}) {
   };
   
   const settings = await require('../models/Settings').findOne({ where: { userId } });
-  if (!settings || !settings.seriesDirectory) {
-    throw new Error('Series directory not configured for this user.');
+  const { getSeriesMediaDirectory } = require('./fileScanner');
+  const seriesDirectory = getSeriesMediaDirectory(settings);
+  if (!seriesDirectory) {
+    throw new Error('TV media folder not configured for this user.');
   }
-  
-  const seriesDirectory = settings.seriesDirectory;
   console.log(`📺 Scanning series directory: ${seriesDirectory}`);
   
   try {

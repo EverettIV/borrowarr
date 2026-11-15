@@ -125,10 +125,58 @@ class QBittorrentProxy {
     }
   }
 
+  extractInfoHash(magnetOrHash) {
+    if (!magnetOrHash) return null;
+    const magnetMatch = magnetOrHash.match(/btih:([a-f0-9]{40})/i);
+    if (magnetMatch) return magnetMatch[1].toLowerCase();
+    if (/^[a-f0-9]{40}$/i.test(magnetOrHash)) return magnetOrHash.toLowerCase();
+    return null;
+  }
+
+  async torrentExistsByHash(infoHash) {
+    if (!infoHash) return false;
+    const normalized = infoHash.toLowerCase();
+    const torrents = await this.getTorrents();
+    return torrents.some(
+      (t) => t.hash && String(t.hash).toLowerCase() === normalized,
+    );
+  }
+
+  /**
+   * qBittorrent returns HTTP 409 or body "Fails." when the torrent is already in the client.
+   */
+  async resolveDuplicateMagnetAdd(magnetLink, error = null) {
+    const hash = this.extractInfoHash(magnetLink);
+    if (!hash) return null;
+
+    const status = error?.response?.status;
+    const body = error?.response?.data;
+    const bodyStr =
+      typeof body === 'string' ? body : body != null ? String(body) : '';
+    const looksLikeDuplicate =
+      status === 409 ||
+      bodyStr.toLowerCase().includes('fails') ||
+      (error?.message && /409/.test(error.message));
+
+    if (!looksLikeDuplicate && error) return null;
+
+    try {
+      if (await this.torrentExistsByHash(hash)) {
+        console.log('[QBittorrent] Torrent already in client — treating add as success');
+        return hash;
+      }
+    } catch (lookupErr) {
+      console.warn('[QBittorrent] Could not verify duplicate torrent:', lookupErr.message);
+    }
+    return null;
+  }
+
   /**
    * Add torrent from magnet link
    */
   async addTorrentFromMagnet(magnetLink) {
+    const hash = this.extractInfoHash(magnetLink);
+
     try {
       const params = new URLSearchParams();
       params.append('urls', magnetLink);
@@ -143,15 +191,22 @@ class QBittorrentProxy {
         params.append('paused', 'true');
       }
 
-      await this.request('POST', '/api/v2/torrents/add', params.toString());
+      const response = await this.request('POST', '/api/v2/torrents/add', params.toString());
+      const responseStr =
+        typeof response === 'string' ? response : response != null ? String(response) : '';
 
-      // Extract hash from magnet link
-      const hashMatch = magnetLink.match(/btih:([a-f0-9]{40})/i);
-      const hash = hashMatch ? hashMatch[1] : null;
+      if (responseStr && responseStr.toLowerCase().includes('fails')) {
+        const existing = await this.resolveDuplicateMagnetAdd(magnetLink);
+        if (existing) return existing;
+        throw new Error('qBittorrent rejected the magnet link');
+      }
 
       console.log('[QBittorrent] Successfully added magnet link');
       return hash;
     } catch (error) {
+      const existing = await this.resolveDuplicateMagnetAdd(magnetLink, error);
+      if (existing) return existing;
+
       console.error('[QBittorrent] Failed to add magnet:', error.message);
       throw new Error(`Failed to add magnet link: ${error.message}`);
     }

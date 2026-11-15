@@ -58,6 +58,7 @@ require("./models/FeaturedLists");
 require("./models/HiddenMedia");
 require("./models/ParentalGuide");
 require("./models/MediaRequest");
+require("./models/ActivityLog");
 
 // Connect to database (this will sync all loaded models)
 connectDB();
@@ -80,11 +81,17 @@ setTimeout(() => {
   initializeAllWatchers();
 }, 20000); // Wait 20 seconds after server starts
 
-// Completed download handling — poll download clients for grab tracking / import
 setTimeout(() => {
-  const { startCompletedDownloadScheduler } = require('./services/completedDownloadHandler');
-  startCompletedDownloadScheduler();
-}, 12000);
+  const {
+    initializeAllAnomalySchedulers,
+  } = require('./services/anomalyDetectorScheduler');
+  initializeAllAnomalySchedulers();
+}, 22000);
+
+setTimeout(() => {
+  const { startIndexerDefinitionScheduler } = require('./services/indexerDefinitionScheduler');
+  startIndexerDefinitionScheduler();
+}, 5000);
 
 app.get("/", (req, res) => {
   res.json({ app: "running" });
@@ -110,6 +117,7 @@ app.use("/api/HiddenMedia", require("./routes/HiddenMedia"));
 app.use("/api/ParentalGuide", require("./routes/ParentalGuide"));
 app.use("/api/MediaRequests", require("./routes/MediaRequests"));
 app.use("/api/CuratedLists", require("./routes/CuratedLists"));
+app.use("/api/ActivityLog", require("./routes/ActivityLog"));
 
 app.listen(PORT, () => {
   console.log("✅ Listening on port " + PORT);

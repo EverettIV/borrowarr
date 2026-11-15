@@ -150,6 +150,8 @@ Create a `.env` file in the `/client` directory:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `NEXT_PUBLIC_API_URL` | **Yes** | `http://localhost:3013` | Backend API URL |
+| `NEXT_PUBLIC_SITE_URL` | No | - | Public site URL (e.g. `https://borrowarr.example.com`) for canonical links, Open Graph, and sitemap when indexing is enabled |
+| `NEXT_PUBLIC_ALLOW_SEARCH_INDEXING` | No | `false` | Set to `true` only on a public demo/marketing deploy; keeps self-hosted instances out of search engines by default |
 | `NEXT_PUBLIC_STRIPE_LINK_PREMIUM` | No | - | Stripe payment link for premium tier |
 | `NEXT_PUBLIC_STRIPE_LINK_ULTIMATE` | No | - | Stripe payment link for ultimate tier |
 

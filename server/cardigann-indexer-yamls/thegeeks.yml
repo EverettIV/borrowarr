@@ -6,7 +6,7 @@ language: en-US
 type: private
 encoding: UTF-8
 certificates:
-  - edf52a95960cbd7ca3c992e634cc087fa47df8c5 # Expired 23rd OCt 2025
+  - d27e03f320cd5d0b6f74718659bd13b0b3ad6689 # Expired 21st Feb 2026
 links:
   - https://thegeeks.click/
 

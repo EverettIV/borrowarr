@@ -2,199 +2,272 @@ const fs = require('fs').promises;
 const path = require('path');
 const MonitoredMovies = require('../models/MonitoredMovies');
 const MonitoredSeries = require('../models/MonitoredSeries');
+const Settings = require('../models/Settings');
+const { getUserNamingScanDirectory } = require('./fileScanner');
+const {
+  extractMetadataFromFilename,
+  buildMovieBaseName,
+  buildSeriesBaseName,
+  getEpisodeTitle,
+  transferFile,
+  findVideoFiles,
+  findMovieVideosForRenaming,
+  resolveMovieTargetPath,
+  resolveMovieForNaming,
+  getMovieSceneName,
+  getMovieRenameReviewReasons,
+  matchMonitoredSeries,
+  extractSeasonEpisode,
+  extractSeriesTitleFromFilename,
+} = require('./mediaOrganizer');
+const { formatNeedsFfprobe, resetProbeFailureLogLimit } = require('./videoProbe');
+const { recordActivitySafe, ActivityCategory } = require('./activityLogService');
+const { mapPool } = require('../utils/asyncPool');
+
+const PREVIEW_CONCURRENCY = 8;
+
+async function logFileRename(userId, mediaType, outcome, payload) {
+  const action = `${mediaType}_rename_${outcome}`;
+  const status = outcome === 'success' ? 'success' : 'failure';
+  await recordActivitySafe(userId, {
+    category: ActivityCategory.FILE_RENAME,
+    action,
+    status,
+    summary: payload.summary,
+    details: payload.details,
+  });
+}
+
+async function applyMovieFormat(
+  format,
+  movie,
+  currentFilename = '',
+  filePath = null,
+  probeCache = null,
+  options = {},
+) {
+  return buildMovieBaseName(format, movie, currentFilename, filePath, probeCache, options);
+}
+
+async function pruneEmptyReleaseDirs(startDir, stopDir) {
+  let dir = startDir;
+  const stop = path.resolve(stopDir);
+  while (dir && path.resolve(dir) !== stop) {
+    try {
+      const entries = await fs.readdir(dir);
+      if (entries.length > 0) break;
+      await fs.rmdir(dir);
+      dir = path.dirname(dir);
+    } catch {
+      break;
+    }
+  }
+}
+
+function isInsideScanRoot(dir, scanRoot) {
+  const resolved = path.resolve(dir);
+  const root = path.resolve(scanRoot);
+  if (resolved === root) return false;
+  const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+  return resolved.startsWith(rootWithSep);
+}
 
 /**
- * Extract quality and metadata from filename
- * @param {string} filename - The filename to parse
- * @returns {object} - Extracted metadata
+ * Remove everything left in the release folder after the video file was moved out.
  */
-function extractMetadataFromFilename(filename) {
-  const metadata = {
-    quality: '',
-    source: '',
-    codec: '',
-    audio: '',
-    edition: '',
-    releaseGroup: '',
+async function cleanupReleaseFolderJunk(oldDir, scanRoot) {
+  if (!scanRoot || !oldDir) return;
+  if (!isInsideScanRoot(oldDir, scanRoot)) return;
+  try {
+    await fs.rm(oldDir, { recursive: true, force: true });
+    await pruneEmptyReleaseDirs(path.dirname(oldDir), scanRoot);
+  } catch (err) {
+    console.warn(`[fileRenamer] Release folder cleanup failed for ${oldDir}:`, err.message);
+  }
+}
+
+async function computeMovieRenameRow(userId, currentPath, movieFileFormat, options = {}) {
+  const libraryDir = await getUserNamingScanDirectory(userId, 'movie');
+  if (!libraryDir) {
+    return { type: 'error', reason: 'no_scan_directory' };
+  }
+
+  const settings = await Settings.findOne({ where: { userId } });
+  const pathOptions = {
+    useReleaseFolders: settings?.movieNamingUseFolders === true,
   };
+  const currentName = path.basename(currentPath);
+  const currentExt = path.extname(currentPath);
+  const probeCache = options.probeCache || new Map();
 
-  const lowerFilename = filename.toLowerCase();
+  let movie;
+  let sceneName;
+  let matchSource;
 
-  // Extract quality
-  if (lowerFilename.includes('2160p') || lowerFilename.includes('4k') || lowerFilename.includes('uhd')) {
-    metadata.quality = '2160p';
-  } else if (lowerFilename.includes('1080p')) {
-    metadata.quality = '1080p';
-  } else if (lowerFilename.includes('720p')) {
-    metadata.quality = '720p';
-  } else if (lowerFilename.includes('480p')) {
-    metadata.quality = '480p';
-  } else if (lowerFilename.includes('360p')) {
-    metadata.quality = '360p';
+  if (options.manualMovie) {
+    movie = options.manualMovie;
+    sceneName = getMovieSceneName(currentPath, libraryDir);
+    matchSource = options.matchSource || 'tmdb_manual';
+  } else {
+    const lookupCache = options.lookupCache || new Map();
+    const resolved = await resolveMovieForNaming(userId, currentPath, lookupCache, libraryDir);
+    if (!resolved.movie) {
+      return {
+        type: 'skipped',
+        name: currentName,
+        reason: resolved.reason || 'cant_parse_title',
+      };
+    }
+    ({ movie, sceneName, matchSource } = resolved);
   }
 
-  // Extract source
-  if (lowerFilename.includes('bluray') || lowerFilename.includes('bdrip') || lowerFilename.includes('brrip')) {
-    metadata.source = 'BluRay';
-  } else if (lowerFilename.includes('web-dl') || lowerFilename.includes('webdl')) {
-    metadata.source = 'WEB-DL';
-  } else if (lowerFilename.includes('webrip')) {
-    metadata.source = 'WEBRip';
-  } else if (lowerFilename.includes('hdtv')) {
-    metadata.source = 'HDTV';
-  } else if (lowerFilename.includes('dvdrip')) {
-    metadata.source = 'DVDRip';
-  } else if (lowerFilename.includes('dvd')) {
-    metadata.source = 'DVD';
+  const sceneMeta = extractMetadataFromFilename(sceneName || currentName);
+  const needsProbe = formatNeedsFfprobe(movieFileFormat, sceneMeta);
+
+  const build = (skipFfprobe) =>
+    applyMovieFormat(
+      movieFileFormat,
+      movie,
+      sceneName,
+      currentPath,
+      probeCache,
+      { skipFfprobe },
+    );
+
+  let newBaseName = await build(true);
+  if (!newBaseName) {
+    return { type: 'skipped', name: currentName, reason: 'empty_format_result' };
   }
 
-  // Extract codec
-  if (lowerFilename.includes('x265') || lowerFilename.includes('hevc') || lowerFilename.includes('h.265') || lowerFilename.includes('h265')) {
-    metadata.codec = 'x265';
-  } else if (lowerFilename.includes('x264') || lowerFilename.includes('h.264') || lowerFilename.includes('h264')) {
-    metadata.codec = 'x264';
-  } else if (lowerFilename.includes('xvid')) {
-    metadata.codec = 'XviD';
-  } else if (lowerFilename.includes('divx')) {
-    metadata.codec = 'DivX';
+  const targetPath = (baseName) =>
+    resolveMovieTargetPath(libraryDir, currentPath, baseName, currentExt, pathOptions);
+
+  let newPath = targetPath(newBaseName);
+
+  if (path.resolve(currentPath) === path.resolve(newPath)) {
+    return { type: 'alreadyNamed' };
   }
 
-  // Extract audio
-  if (lowerFilename.includes('dts-hd') || lowerFilename.includes('dts.hd')) {
-    metadata.audio = 'DTS-HD';
-  } else if (lowerFilename.includes('dts')) {
-    metadata.audio = 'DTS';
-  } else if (lowerFilename.includes('dd5.1') || lowerFilename.includes('dd51') || lowerFilename.includes('ac3')) {
-    metadata.audio = 'AC3';
-  } else if (lowerFilename.includes('aac')) {
-    metadata.audio = 'AAC';
-  } else if (lowerFilename.includes('mp3')) {
-    metadata.audio = 'MP3';
-  } else if (lowerFilename.includes('truehd')) {
-    metadata.audio = 'TrueHD';
-  } else if (lowerFilename.includes('atmos')) {
-    metadata.audio = 'Atmos';
-  }
-
-  // Extract edition
-  if (lowerFilename.includes('extended')) {
-    metadata.edition = 'Extended';
-  } else if (lowerFilename.includes('directors.cut') || lowerFilename.includes('director\'s.cut')) {
-    metadata.edition = 'Directors Cut';
-  } else if (lowerFilename.includes('unrated')) {
-    metadata.edition = 'Unrated';
-  } else if (lowerFilename.includes('theatrical')) {
-    metadata.edition = 'Theatrical';
-  } else if (lowerFilename.includes('ultimate')) {
-    metadata.edition = 'Ultimate';
-  } else if (lowerFilename.includes('remastered')) {
-    metadata.edition = 'Remastered';
-  }
-
-  // Extract release group (usually at the end, after a hyphen)
-  const releaseGroupMatch = filename.match(/[-.]([A-Za-z0-9]+)(?:\.[a-z0-9]+)?$/);
-  if (releaseGroupMatch && releaseGroupMatch[1]) {
-    const possibleGroup = releaseGroupMatch[1];
-    // Common release groups
-    const knownGroups = ['YIFY', 'YTS', 'RARBG', 'SPARKS', 'ROVERS', 'EVO', 'PSA', 'FGT', 'MeGusta', 'FLAME', 'GALAXY', 'GECKOS'];
-    if (knownGroups.some(g => possibleGroup.toUpperCase().includes(g.toUpperCase()))) {
-      metadata.releaseGroup = possibleGroup;
+  if (needsProbe) {
+    newBaseName = await build(false);
+    if (!newBaseName) {
+      return { type: 'skipped', name: currentName, reason: 'empty_format_result' };
+    }
+    newPath = targetPath(newBaseName);
+    if (path.resolve(currentPath) === path.resolve(newPath)) {
+      return { type: 'alreadyNamed' };
     }
   }
 
-  return metadata;
-}
-
-/**
- * Apply naming format to a movie
- * @param {string} format - The naming format with tokens
- * @param {object} movie - The movie object with metadata
- * @param {string} currentFilename - The current filename to extract metadata from
- * @returns {string} - The formatted filename
- */
-function applyMovieFormat(format, movie, currentFilename = '') {
-  const releaseYear = movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : '';
-  
-  // Extract metadata from current filename
-  const metadata = currentFilename ? extractMetadataFromFilename(currentFilename) : {};
-
-  let result = format
-    // Basic tokens
-    .replace(/{Movie Title}/g, movie.title)
-    .replace(/{Release Year}/g, releaseYear)
-    .replace(/{movie title}/g, movie.title.toLowerCase())
-    .replace(/{release year}/g, releaseYear)
-    .replace(/{MOVIE TITLE}/g, movie.title.toUpperCase())
-    .replace(/{RELEASE YEAR}/g, releaseYear)
-    
-    // Advanced tokens
-    .replace(/{Quality}/g, metadata.quality || '')
-    .replace(/{Source}/g, metadata.source || '')
-    .replace(/{Codec}/g, metadata.codec || '')
-    .replace(/{Audio}/g, metadata.audio || '')
-    .replace(/{Edition}/g, metadata.edition || '')
-    .replace(/{Release Group}/g, metadata.releaseGroup || '');
-
-  // Clean up double spaces and leading/trailing spaces
-  result = result.replace(/\s+/g, ' ').trim();
-  
-  // Clean up any invalid filename characters
-  result = result.replace(/[<>:"/\\|?*]/g, '');
-  
-  // Clean up multiple dots or dashes in a row
-  result = result.replace(/\.{2,}/g, '.').replace(/-{2,}/g, '-');
-  
-  // Clean up spaces before punctuation
-  result = result.replace(/\s+([.,\-_()])/g, '$1');
-  
-  // Remove empty parentheses or brackets
-  result = result.replace(/\(\s*\)/g, '').replace(/\[\s*\]/g, '');
-  
-  return result;
-}
-
-/**
- * Preview file renames for all monitored movies
- * @param {string} userId - The user ID
- * @param {string} movieFileFormat - The movie naming format
- * @returns {Promise<Array<{movieId, currentPath, currentName, newName, directory}>>}
- */
-async function previewMovieRenames(userId, movieFileFormat) {
-  const renames = [];
-  
-  // Get all monitored movies for this user that have files
-  const movies = await MonitoredMovies.findAll({
-    where: {
-      userId,
-      fileExists: true,
-    },
+  const newName = path.basename(newPath);
+  const reviewReasons = getMovieRenameReviewReasons({
+    currentName,
+    newName,
+    movieTitle: movie.title,
+    sceneName,
+    matchSource,
+    tmdbMatchScore: movie.tmdbMatchScore ?? null,
+    tmdbId: movie.tmdbId ?? null,
   });
 
-  for (const movie of movies) {
-    if (!movie.filePath) continue;
+  return {
+    type: 'rename',
+    movieId: movie.id || null,
+    tmdbId: movie.tmdbId ?? null,
+    matchSource,
+    resolvedTitle: movie.title,
+    currentPath,
+    currentName,
+    sceneName,
+    newName,
+    newPath,
+    directory: path.dirname(newPath),
+    needsReview: reviewReasons.length > 0,
+    reviewReasons,
+  };
+}
 
-    const currentPath = movie.filePath;
-    const currentName = path.basename(currentPath);
-    const currentExt = path.extname(currentPath);
-    const directory = path.dirname(currentPath);
+async function recomputeMovieRenameWithTmdb(userId, currentPath, movieFileFormat, tmdbId) {
+  const tmdbService = require('./tmdbService');
+  const details = await tmdbService.getMovieDetails(tmdbId);
+  if (!details.success || !details.movie) {
+    throw new Error(details.error || 'TMDB movie not found');
+  }
+  const m = details.movie;
+  const manualMovie = {
+    id: null,
+    tmdbId: m.id,
+    title: m.title,
+    releaseDate: m.release_date || null,
+    tmdbMatchScore: 100,
+  };
+  const row = await computeMovieRenameRow(userId, currentPath, movieFileFormat, {
+    manualMovie,
+    matchSource: 'tmdb_manual',
+  });
+  if (row.type !== 'rename') {
+    throw new Error(row.reason || 'Could not build rename for this file');
+  }
+  return row;
+}
 
-    // Apply the naming format (pass current filename for metadata extraction)
-    const newBaseName = applyMovieFormat(movieFileFormat, movie, currentName);
-    const newName = `${newBaseName}${currentExt}`;
+async function previewMovieRenames(userId, movieFileFormat) {
+  resetProbeFailureLogLimit();
+  const stats = {
+    scanned: 0,
+    matched: 0,
+    toRename: 0,
+    alreadyNamed: 0,
+    skipped: [],
+  };
+  const renames = [];
 
-    // Only include if the name would actually change
-    if (currentName !== newName) {
+  const libraryDir = await getUserNamingScanDirectory(userId, 'movie');
+  if (!libraryDir) {
+    return { renames, stats };
+  }
+
+  const files = await findMovieVideosForRenaming(libraryDir, libraryDir);
+  stats.scanned = files.length;
+  const lookupCache = new Map();
+  const probeCache = new Map();
+
+  const outcomes = await mapPool(files, PREVIEW_CONCURRENCY, async (currentPath) =>
+    computeMovieRenameRow(userId, currentPath, movieFileFormat, { lookupCache, probeCache }),
+  );
+
+  for (const outcome of outcomes) {
+    if (!outcome) continue;
+    if (outcome.type === 'skipped') {
+      stats.skipped.push({ name: outcome.name, reason: outcome.reason });
+      continue;
+    }
+    if (outcome.type === 'alreadyNamed') {
+      stats.matched++;
+      stats.alreadyNamed++;
+      continue;
+    }
+    if (outcome.type === 'rename') {
+      stats.matched++;
+      stats.toRename++;
       renames.push({
-        movieId: movie.id,
-        currentPath,
-        currentName,
-        newName,
-        directory,
+        movieId: outcome.movieId,
+        matchSource: outcome.matchSource,
+        resolvedTitle: outcome.resolvedTitle,
+        currentPath: outcome.currentPath,
+        currentName: outcome.currentName,
+        sceneName: outcome.sceneName,
+        newName: outcome.newName,
+        newPath: outcome.newPath,
+        directory: outcome.directory,
+        needsReview: outcome.needsReview,
+        reviewReasons: outcome.reviewReasons,
+        tmdbId: outcome.tmdbId,
       });
     }
   }
 
-  return renames;
+  return { renames, stats };
 }
 
 /**
@@ -210,22 +283,30 @@ async function executeMovieRenames(userId, renames) {
     errors: [],
   };
 
+  const scanRoot = await getUserNamingScanDirectory(userId, 'movie');
+  const settings = await Settings.findOne({ where: { userId } });
+  const cleanupReleaseJunk = settings?.movieRenameCleanupReleaseFolder === true;
+
   for (const rename of renames) {
     try {
-      const { movieId, currentPath, newName, directory } = rename;
-      
-      // Construct new path
-      const newPath = path.join(directory, newName);
+      const { movieId, currentPath, newName, directory, newPath: presetPath } = rename;
+
+      const newPath = presetPath || path.join(directory, newName);
 
       // Check if source file exists
       try {
         await fs.access(currentPath);
       } catch (error) {
+        const errMsg = 'Source file not found';
         results.failed++;
         results.errors.push({
           movieId,
           currentName: path.basename(currentPath),
-          error: 'Source file not found',
+          error: errMsg,
+        });
+        await logFileRename(userId, 'movie', 'failure', {
+          summary: `Movie rename failed: ${path.basename(currentPath)} — ${errMsg}`,
+          details: { currentPath, newPath, newName, movieId, error: errMsg },
         });
         continue;
       }
@@ -233,31 +314,56 @@ async function executeMovieRenames(userId, renames) {
       // Check if destination already exists
       try {
         await fs.access(newPath);
+        const errMsg = 'Destination file already exists';
         results.failed++;
         results.errors.push({
           movieId,
           currentName: path.basename(currentPath),
-          error: 'Destination file already exists',
+          error: errMsg,
+        });
+        await logFileRename(userId, 'movie', 'failure', {
+          summary: `Movie rename failed: ${path.basename(currentPath)} — ${errMsg}`,
+          details: { currentPath, newPath, newName, movieId, error: errMsg },
         });
         continue;
       } catch (error) {
         // Good, destination doesn't exist
       }
 
-      // Perform the rename
-      await fs.rename(currentPath, newPath);
+      const oldDir = path.dirname(currentPath);
+      const wasInReleaseFolder =
+        scanRoot && isInsideScanRoot(oldDir, scanRoot);
+      await transferFile(currentPath, newPath);
+      if (scanRoot) {
+        if (cleanupReleaseJunk && wasInReleaseFolder) {
+          await cleanupReleaseFolderJunk(oldDir, scanRoot);
+        } else {
+          await pruneEmptyReleaseDirs(oldDir, scanRoot);
+        }
+      }
 
-      // Update the database
-      const movie = await MonitoredMovies.findByPk(movieId);
-      if (movie && movie.userId === userId) {
-        await movie.update({
-          filePath: newPath,
-          fileName: newName,
-        });
+      if (movieId) {
+        const movie = await MonitoredMovies.findByPk(movieId);
+        if (movie && movie.userId === userId) {
+          await movie.update({
+            filePath: newPath,
+            fileName: newName,
+          });
+        }
       }
 
       results.success++;
       console.log(`✅ Renamed: ${path.basename(currentPath)} → ${newName}`);
+      await logFileRename(userId, 'movie', 'success', {
+        summary: `${path.basename(currentPath)} → ${path.basename(newPath)}`,
+        details: {
+          currentPath,
+          newPath,
+          newName,
+          movieId,
+          releaseFolderCleaned: Boolean(cleanupReleaseJunk && wasInReleaseFolder),
+        },
+      });
     } catch (error) {
       results.failed++;
       results.errors.push({
@@ -266,332 +372,166 @@ async function executeMovieRenames(userId, renames) {
         error: error.message,
       });
       console.error(`❌ Failed to rename ${path.basename(rename.currentPath)}:`, error);
+      await logFileRename(userId, 'movie', 'failure', {
+        summary: `Movie rename failed: ${path.basename(rename.currentPath)} — ${error.message}`,
+        details: {
+          currentPath: rename.currentPath,
+          newPath: rename.newPath || rename.directory,
+          newName: rename.newName,
+          movieId: rename.movieId,
+          error: error.message,
+        },
+      });
     }
   }
 
   return results;
 }
 
-/**
- * Extract season and episode numbers from filename
- * @param {string} filename - The filename to parse
- * @returns {{season: number|null, episode: number|null}} - Extracted season/episode
- */
-function extractSeasonEpisode(filename) {
-  const baseName = path.basename(filename, path.extname(filename));
-  
-  // Try S##E## pattern (e.g., S01E01)
-  let match = baseName.match(/S(\d{1,2})E(\d{1,2})/i);
-  if (match) {
-    return {
-      season: parseInt(match[1], 10),
-      episode: parseInt(match[2], 10),
-    };
-  }
-  
-  // Try #x## pattern (e.g., 1x01)
-  match = baseName.match(/(\d{1,2})x(\d{1,2})/i);
-  if (match) {
-    return {
-      season: parseInt(match[1], 10),
-      episode: parseInt(match[2], 10),
-    };
-  }
-  
-  // Try Season # Episode # pattern
-  match = baseName.match(/Season[.\s\-_](\d{1,2})[.\s\-_]Episode[.\s\-_](\d{1,2})/i);
-  if (match) {
-    return {
-      season: parseInt(match[1], 10),
-      episode: parseInt(match[2], 10),
-    };
-  }
-  
-  return { season: null, episode: null };
+async function applySeriesFormat(
+  format,
+  series,
+  season,
+  episode,
+  episodeTitle = '',
+  currentFilename = '',
+  filePath = null,
+  probeCache = null,
+  options = {},
+) {
+  return buildSeriesBaseName(
+    format,
+    series,
+    season,
+    episode,
+    episodeTitle,
+    currentFilename,
+    filePath,
+    probeCache,
+    options,
+  );
 }
 
-/**
- * Apply naming format to a series episode
- * @param {string} format - The naming format with tokens
- * @param {object} series - The series object with metadata
- * @param {number} season - Season number
- * @param {number} episode - Episode number
- * @param {string} episodeTitle - Episode title (if available)
- * @param {string} currentFilename - The current filename to extract metadata from
- * @returns {string} - The formatted filename
- */
-function applySeriesFormat(format, series, season, episode, episodeTitle = '', currentFilename = '') {
-  // Extract metadata from current filename
-  const metadata = currentFilename ? extractMetadataFromFilename(currentFilename) : {};
-  
-  // Format season/episode numbers with padding
-  const seasonPadded = String(season).padStart(2, '0');
-  const episodePadded = String(episode).padStart(2, '0');
-
-  let result = format
-    // Basic tokens
-    .replace(/{Series Title}/g, series.title)
-    .replace(/{series title}/g, series.title.toLowerCase())
-    .replace(/{SERIES TITLE}/g, series.title.toUpperCase())
-    
-    // Season tokens
-    .replace(/{season:00}/g, seasonPadded)
-    .replace(/{season}/g, season)
-    .replace(/{Season:00}/g, seasonPadded)
-    .replace(/{Season}/g, season)
-    
-    // Episode tokens
-    .replace(/{episode:00}/g, episodePadded)
-    .replace(/{episode}/g, episode)
-    .replace(/{Episode:00}/g, episodePadded)
-    .replace(/{Episode}/g, episode)
-    
-    // Episode title
-    .replace(/{Episode Title}/g, episodeTitle || '')
-    .replace(/{episode title}/g, episodeTitle ? episodeTitle.toLowerCase() : '')
-    .replace(/{EPISODE TITLE}/g, episodeTitle ? episodeTitle.toUpperCase() : '')
-    
-    // Advanced tokens
-    .replace(/{Quality}/g, metadata.quality || '')
-    .replace(/{Source}/g, metadata.source || '')
-    .replace(/{Codec}/g, metadata.codec || '')
-    .replace(/{Audio}/g, metadata.audio || '')
-    .replace(/{Edition}/g, metadata.edition || '')
-    .replace(/{Release Group}/g, metadata.releaseGroup || '');
-
-  // For series, we need to preserve / for folder paths
-  // Clean up each path segment separately
-  const pathParts = result.split('/');
-  const cleanedParts = pathParts.map(part => {
-    let cleaned = part;
-    // Clean up double spaces and leading/trailing spaces
-    cleaned = cleaned.replace(/\s+/g, ' ').trim();
-    // Clean up any invalid filename characters (but NOT / since we split on it)
-    cleaned = cleaned.replace(/[<>:"|?*\\]/g, '');
-    // Clean up multiple dots or dashes in a row
-    cleaned = cleaned.replace(/\.{2,}/g, '.').replace(/-{2,}/g, '-');
-    // Clean up spaces before punctuation
-    cleaned = cleaned.replace(/\s+([.,\-_()])/g, '$1');
-    // Remove empty parentheses or brackets
-    cleaned = cleaned.replace(/\(\s*\)/g, '').replace(/\[\s*\]/g, '');
-    return cleaned;
-  });
-  
-  // Rejoin with / and filter out empty parts
-  result = cleanedParts.filter(part => part.length > 0).join('/');
-  
-  return result;
-}
-
-/**
- * Helper function to extract series title from filename
- * @param {string} filename - The filename to parse
- * @returns {string} - Extracted series title
- */
-function extractSeriesTitleFromFilename(filename) {
-  const baseName = path.basename(filename, path.extname(filename));
-  
-  // Try to extract title before season/episode marker
-  // Pattern: Title.S01E01 or Title.1x01 or Title.Season.1.Episode.1
-  const patterns = [
-    /^(.+?)[.\s\-_][Ss](\d{1,2})[Ee](\d{1,2})/,  // Title.S01E01
-    /^(.+?)[.\s\-_](\d{1,2})[xX](\d{1,2})/,       // Title.1x01
-    /^(.+?)[.\s\-_][Ss]eason[.\s\-_](\d{1,2})/i,  // Title.Season.1
-  ];
-  
-  for (const pattern of patterns) {
-    const match = baseName.match(pattern);
-    if (match) {
-      let title = match[1]
-        .replace(/[._]/g, ' ')
-        .trim()
-        .replace(/\s+/g, ' ');
-      return title;
-    }
-  }
-  
-  // Fallback: take everything before first digit sequence
-  const fallbackMatch = baseName.match(/^(.+?)(?:[.\s\-_]\d+)/);
-  if (fallbackMatch) {
-    return fallbackMatch[1].replace(/[._]/g, ' ').trim();
-  }
-  
-  return baseName.replace(/[._]/g, ' ').trim();
-}
-
-/**
- * Fuzzy match series title to monitored series
- * @param {string} fileTitle - Title extracted from filename
- * @param {Array} monitoredSeries - Array of monitored series objects
- * @returns {object|null} - Matched series or null
- */
-function matchSeriesToMonitored(fileTitle, monitoredSeries) {
-  const normalizeTitle = (title) => title.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const normalizedFileTitle = normalizeTitle(fileTitle);
-  
-  // Try exact match first
-  for (const series of monitoredSeries) {
-    if (normalizeTitle(series.title) === normalizedFileTitle) {
-      return series;
-    }
-  }
-  
-  // Try partial match (contains or is contained)
-  for (const series of monitoredSeries) {
-    const normalizedSeriesTitle = normalizeTitle(series.title);
-    if (normalizedFileTitle.includes(normalizedSeriesTitle) || 
-        normalizedSeriesTitle.includes(normalizedFileTitle)) {
-      return series;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Preview file renames for all monitored series episodes
- * @param {string} userId - The user ID
- * @param {string} seriesFileFormat - The series naming format
- * @returns {Promise<Array<{seriesId, currentPath, currentName, newName, newPath, directory, season, episode}>>}
- */
 async function previewSeriesRenames(userId, seriesFileFormat) {
+  const stats = {
+    scanned: 0,
+    matched: 0,
+    toRename: 0,
+    alreadyNamed: 0,
+    skipped: [],
+  };
   const renames = [];
-  const Settings = require('../models/Settings');
-  
-  // Get user's series directory
-  const settings = await Settings.findOne({ where: { userId } });
-  if (!settings || !settings.seriesDirectory) {
-    return renames;
+
+  const seriesDirectory = await getUserNamingScanDirectory(userId, 'series');
+  if (!seriesDirectory) {
+    return { renames, stats };
   }
-  
-  const seriesDirectory = settings.seriesDirectory;
-  
-  // Get all monitored series for this user
-  const allSeries = await MonitoredSeries.findAll({
-    where: { userId },
+
+  const allSeries = await MonitoredSeries.findAll({ where: { userId } });
+  if (allSeries.length === 0) {
+    return { renames, stats };
+  }
+
+  const allVideoFiles = await findVideoFiles(seriesDirectory);
+  stats.scanned = allVideoFiles.length;
+  const probeCache = new Map();
+
+  const outcomes = await mapPool(allVideoFiles, PREVIEW_CONCURRENCY, async (currentPath) => {
+    const currentName = path.basename(currentPath);
+    const currentExt = path.extname(currentPath);
+    const { season, episode } = extractSeasonEpisode(currentName);
+
+    if (season == null || episode == null) {
+      return { type: 'skipped', name: currentName, reason: 'no_sxxexx_in_filename' };
+    }
+
+    const fileSeriesTitle = extractSeriesTitleFromFilename(currentName);
+    const matchedSeries = matchMonitoredSeries(fileSeriesTitle, allSeries);
+    if (!matchedSeries) {
+      return { type: 'skipped', name: currentName, reason: 'not_in_monitored_library' };
+    }
+
+    const episodeTitle = await getEpisodeTitle(matchedSeries.tmdbId, season, episode);
+    const sceneMeta = extractMetadataFromFilename(currentName);
+    const needsProbe = formatNeedsFfprobe(seriesFileFormat, sceneMeta);
+
+    const build = (skipFfprobe) =>
+      applySeriesFormat(
+        seriesFileFormat,
+        matchedSeries,
+        season,
+        episode,
+        episodeTitle,
+        currentName,
+        currentPath,
+        probeCache,
+        { skipFfprobe },
+      );
+
+    let newBaseName = await build(true);
+    const withExt = (base) => `${base}${currentExt}`;
+    let newFileName = withExt(newBaseName);
+    let newPath = newFileName.includes('/') || newFileName.includes('\\')
+      ? path.normalize(path.join(seriesDirectory, newFileName))
+      : path.join(path.dirname(currentPath), newFileName);
+
+    if (currentPath === newPath) {
+      return { type: 'alreadyNamed' };
+    }
+
+    if (needsProbe) {
+      newBaseName = await build(false);
+      newFileName = withExt(newBaseName);
+      newPath = newFileName.includes('/') || newFileName.includes('\\')
+        ? path.normalize(path.join(seriesDirectory, newFileName))
+        : path.join(path.dirname(currentPath), newFileName);
+      if (currentPath === newPath) {
+        return { type: 'alreadyNamed' };
+      }
+    }
+
+    const includesFolders = newFileName.includes('/');
+    return {
+      type: 'rename',
+      seriesId: matchedSeries.id,
+      currentPath,
+      currentName,
+      newName: includesFolders ? newFileName : path.basename(newPath),
+      newPath,
+      directory: path.dirname(newPath),
+      season,
+      episode,
+    };
   });
 
-  if (allSeries.length === 0) {
-    console.log('No monitored series found for user');
-    return renames;
-  }
-
-  console.log(`Found ${allSeries.length} monitored series for user ${userId}`);
-  
-  // Find all video files in the entire series directory (including root)
-  const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mpeg', '.mpg', '.m4v'];
-  const allVideoFiles = await findVideoFiles(seriesDirectory, videoExtensions);
-  
-  console.log(`Found ${allVideoFiles.length} video files in ${seriesDirectory}`);
-
-  // Process each video file
-  for (const videoFile of allVideoFiles) {
-    try {
-      const currentPath = videoFile;
-      const currentName = path.basename(currentPath);
-      const currentExt = path.extname(currentPath);
-      
-      // Extract season/episode from filename
-      const { season, episode } = extractSeasonEpisode(currentName);
-      
-      if (season === null || episode === null) {
-        console.log(`Skipping ${currentName}: Could not extract season/episode`);
-        continue;
-      }
-      
-      // Extract series title from filename
-      const fileSeriesTitle = extractSeriesTitleFromFilename(currentName);
-      console.log(`Extracted title "${fileSeriesTitle}" from ${currentName}`);
-      
-      // Try to match to a monitored series
-      const matchedSeries = matchSeriesToMonitored(fileSeriesTitle, allSeries);
-      
-      if (!matchedSeries) {
-        console.log(`No monitored series match for "${fileSeriesTitle}"`);
-        continue;
-      }
-      
-      console.log(`Matched to monitored series: "${matchedSeries.title}"`);
-      
-      // Apply the naming format
-      const newBaseName = applySeriesFormat(
-        seriesFileFormat, 
-        matchedSeries, 
-        season, 
-        episode, 
-        '', // Episode title (we don't have it from the file)
-        currentName
-      );
-      const newFileName = `${newBaseName}${currentExt}`;
-      
-      // Determine new path based on format
-      // If format includes folder structure (contains /), create that structure
-      let newPath;
-      if (newFileName.includes('/') || newFileName.includes('\\')) {
-        // Format includes folder structure, use series directory as base
-        newPath = path.join(seriesDirectory, newFileName);
-      } else {
-        // No folder structure in format, keep in current directory
-        newPath = path.join(path.dirname(currentPath), newFileName);
-      }
-      
-      // Normalize the new path
-      newPath = path.normalize(newPath);
-      
-      // Only include if the path would actually change
-      if (currentPath !== newPath) {
-        // Determine if the format includes folder structure
-        const includesFolderStructure = newFileName.includes('/') || newFileName.includes('\\');
-        
-        renames.push({
-          seriesId: matchedSeries.id,
-          currentPath,
-          currentName,
-          // Keep the full path with folders if the format includes folder structure
-          newName: includesFolderStructure ? newFileName : path.basename(newPath),
-          newPath,
-          directory: path.dirname(newPath),
-          season,
-          episode,
-        });
-      }
-    } catch (error) {
-      console.error(`Error processing file ${videoFile}:`, error);
+  for (const outcome of outcomes) {
+    if (!outcome) continue;
+    if (outcome.type === 'skipped') {
+      stats.skipped.push({ name: outcome.name, reason: outcome.reason });
+      continue;
+    }
+    if (outcome.type === 'alreadyNamed') {
+      stats.matched++;
+      stats.alreadyNamed++;
+      continue;
+    }
+    if (outcome.type === 'rename') {
+      stats.matched++;
+      stats.toRename++;
+      renames.push({
+        seriesId: outcome.seriesId,
+        currentPath: outcome.currentPath,
+        currentName: outcome.currentName,
+        newName: outcome.newName,
+        newPath: outcome.newPath,
+        directory: outcome.directory,
+        season: outcome.season,
+        episode: outcome.episode,
+      });
     }
   }
 
-  console.log(`Generated ${renames.length} rename operations`);
-  return renames;
-}
-
-/**
- * Recursively find all video files in a directory
- * @param {string} dirPath - The directory to search
- * @param {Array<string>} extensions - Video file extensions
- * @returns {Promise<Array<string>>} - Array of file paths
- */
-async function findVideoFiles(dirPath, extensions) {
-  const files = [];
-  
-  try {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      const fullPath = path.join(dirPath, entry.name);
-      
-      if (entry.isDirectory()) {
-        // Recursively search subdirectories
-        const subFiles = await findVideoFiles(fullPath, extensions);
-        files.push(...subFiles);
-      } else if (entry.isFile() && extensions.includes(path.extname(entry.name).toLowerCase())) {
-        files.push(fullPath);
-      }
-    }
-  } catch (error) {
-    console.error(`Error reading directory ${dirPath}:`, error);
-  }
-  
-  return files;
+  return { renames, stats };
 }
 
 /**
@@ -609,7 +549,8 @@ async function executeSeriesRenames(userId, renames) {
 
   const Settings = require('../models/Settings');
   const settings = await Settings.findOne({ where: { userId } });
-  const seriesDirectory = settings?.seriesDirectory;
+  const { getSeriesMediaDirectory } = require('./fileScanner');
+  const seriesDirectory = getSeriesMediaDirectory(settings);
 
   if (!seriesDirectory) {
     results.failed = renames.length;
@@ -621,38 +562,31 @@ async function executeSeriesRenames(userId, renames) {
 
   for (const rename of renames) {
     try {
-      const { seriesId, currentPath, newName, directory } = rename;
-      
-      // If the newName includes path separators (folders), we need to handle it specially
-      // For example: "Breaking Bad/Season 01/Breaking Bad - S01E01.mkv"
-      let finalPath;
-      
-      if (newName.includes('/') || newName.includes(path.sep)) {
-        // The format includes folder structure
-        // Build the path relative to the series directory
-        finalPath = path.join(seriesDirectory, newName);
-        
-        // Create the directory structure if it doesn't exist
-        const targetDirectory = path.dirname(finalPath);
-        try {
-          await fs.mkdir(targetDirectory, { recursive: true });
-        } catch (mkdirError) {
-          console.log(`Directory already exists or created: ${targetDirectory}`);
+      const { seriesId, currentPath, newName, directory, newPath: presetPath } = rename;
+
+      let finalPath = presetPath;
+      if (!finalPath) {
+        if (newName.includes('/') || newName.includes(path.sep)) {
+          finalPath = path.join(seriesDirectory, newName);
+        } else {
+          finalPath = path.join(directory, newName);
         }
-      } else {
-        // No folder structure, rename in place
-        finalPath = path.join(directory, newName);
       }
 
       // Check if source file exists
       try {
         await fs.access(currentPath);
       } catch (error) {
+        const errMsg = 'Source file not found';
         results.failed++;
         results.errors.push({
           seriesId,
           currentName: path.basename(currentPath),
-          error: 'Source file not found',
+          error: errMsg,
+        });
+        await logFileRename(userId, 'series', 'failure', {
+          summary: `Series rename failed: ${path.basename(currentPath)} — ${errMsg}`,
+          details: { currentPath, newPath: finalPath, newName, seriesId, error: errMsg },
         });
         continue;
       }
@@ -660,22 +594,38 @@ async function executeSeriesRenames(userId, renames) {
       // Check if destination already exists
       try {
         await fs.access(finalPath);
+        const errMsg = 'Destination file already exists';
         results.failed++;
         results.errors.push({
           seriesId,
           currentName: path.basename(currentPath),
-          error: 'Destination file already exists',
+          error: errMsg,
+        });
+        await logFileRename(userId, 'series', 'failure', {
+          summary: `Series rename failed: ${path.basename(currentPath)} — ${errMsg}`,
+          details: { currentPath, newPath: finalPath, newName, seriesId, error: errMsg },
         });
         continue;
       } catch (error) {
         // Good, destination doesn't exist
       }
 
-      // Perform the rename/move
-      await fs.rename(currentPath, finalPath);
+      await fs.mkdir(path.dirname(finalPath), { recursive: true });
+      await transferFile(currentPath, finalPath);
 
       results.success++;
       console.log(`✅ Organized series file: ${path.basename(currentPath)} → ${finalPath}`);
+      await logFileRename(userId, 'series', 'success', {
+        summary: `${path.basename(currentPath)} → ${path.basename(finalPath)}`,
+        details: {
+          currentPath,
+          newPath: finalPath,
+          newName,
+          seriesId,
+          season: rename.season,
+          episode: rename.episode,
+        },
+      });
     } catch (error) {
       results.failed++;
       results.errors.push({
@@ -684,6 +634,15 @@ async function executeSeriesRenames(userId, renames) {
         error: error.message,
       });
       console.error(`❌ Failed to rename series file ${path.basename(rename.currentPath)}:`, error);
+      await logFileRename(userId, 'series', 'failure', {
+        summary: `Series rename failed: ${path.basename(rename.currentPath)} — ${error.message}`,
+        details: {
+          currentPath: rename.currentPath,
+          newName: rename.newName,
+          seriesId: rename.seriesId,
+          error: error.message,
+        },
+      });
     }
   }
 
@@ -693,8 +652,11 @@ async function executeSeriesRenames(userId, renames) {
 module.exports = {
   extractMetadataFromFilename,
   extractSeasonEpisode,
+  extractSeriesTitleFromFilename,
   applyMovieFormat,
   applySeriesFormat,
+  computeMovieRenameRow,
+  recomputeMovieRenameWithTmdb,
   previewMovieRenames,
   previewSeriesRenames,
   executeMovieRenames,

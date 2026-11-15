@@ -35,13 +35,23 @@ class CardigannTemplateEngine {
     let result = template;
     const allVars = { ...this.variables, ...additionalVars };
 
-    // Process logic blocks first (if/else/end, or, and, eq, ne)
+    result = this.processRange(result, allVars);
     result = this.processLogicBlocks(result, allVars);
-
-    // Process variable substitutions
     result = this.processVariables(result, allVars);
 
     return result;
+  }
+
+  /**
+   * {{ range .Categories }}c{{.}}=1&{{ end }}
+   */
+  processRange(template, vars) {
+    const rangeRegex = /\{\{\s*range\s+(\.[A-Za-z0-9_.]+)\s*\}\}([\s\S]*?)\{\{\s*end\s*\}\}/g;
+    return template.replace(rangeRegex, (match, varPath, body) => {
+      const value = this.resolveVariable(varPath, vars);
+      const items = Array.isArray(value) ? value : (value ? [value] : []);
+      return items.map((item) => body.replace(/\{\{\s*\.\s*\}\}/g, String(item))).join('');
+    });
   }
 
   /**
@@ -95,13 +105,13 @@ class CardigannTemplateEngine {
     // Handle "or" conditions: or .A .B
     if (condition.startsWith('or ')) {
       const parts = condition.substring(3).trim().split(/\s+/);
-      return parts.some(part => this.resolveVariable(part, vars));
+      return parts.some(part => this.isTruthy(this.resolveVariable(part, vars)));
     }
 
     // Handle "and" conditions: and .A .B
     if (condition.startsWith('and ')) {
       const parts = condition.substring(4).trim().split(/\s+/);
-      return parts.every(part => this.resolveVariable(part, vars));
+      return parts.every(part => this.isTruthy(this.resolveVariable(part, vars)));
     }
 
     // Handle "eq" conditions: eq .A "value"
@@ -114,8 +124,17 @@ class CardigannTemplateEngine {
       return this.evaluateComparison(condition, vars, 'ne');
     }
 
-    // Simple variable check
-    return this.resolveVariable(condition, vars);
+    // Simple variable check. Go templates treat empty strings, 0, false,
+    // and zero-length arrays, slices, and maps as false.
+    return this.isTruthy(this.resolveVariable(condition, vars));
+  }
+
+  isTruthy(value) {
+    if (value === false || value === 0 || value === null || value === undefined) return false;
+    if (typeof value === 'string') return value.length > 0;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'object') return Object.keys(value).length > 0;
+    return Boolean(value);
   }
 
   /**
@@ -127,7 +146,7 @@ class CardigannTemplateEngine {
       const parts = args.trim().split(/\s+/);
       for (const part of parts) {
         const value = this.resolveVariable(part, vars);
-        if (value) return value;
+        if (this.isTruthy(value)) return value;
       }
       return '';
     });
@@ -143,7 +162,7 @@ class CardigannTemplateEngine {
       let lastValue = '';
       for (const part of parts) {
         const value = this.resolveVariable(part, vars);
-        if (!value) return '';
+        if (!this.isTruthy(value)) return '';
         lastValue = value;
       }
       return lastValue;
@@ -199,7 +218,7 @@ class CardigannTemplateEngine {
     result = this.processReReplaceInTemplate(result, vars);
 
     // {{ .Variable }} or {{ .Config.key }}
-    const varRegex = /\{\{\s*\.([A-Za-z_][A-Za-z0-9_.]*)\s*\}\}/g;
+    const varRegex = /\{\{\s*\.([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}/g;
     result = result.replace(varRegex, (match, varPath) => {
       const value = this.resolveVariable(`.${varPath}`, vars);
       // Convert non-string values to strings (Prowlarr line 594)
@@ -219,7 +238,7 @@ class CardigannTemplateEngine {
       try {
         const input = String(this.resolveVariable(variable, vars) || '');
         const regex = new RegExp(pattern, 'g');
-        return regex.replace(input, replacement);
+        return input.replace(regex, replacement);
       } catch (error) {
         console.warn(`[Template] re_replace error: ${error.message}`);
         return '';
@@ -247,24 +266,41 @@ class CardigannTemplateEngine {
   resolveVariable(varPath, vars) {
     if (!varPath) return '';
 
-    // Remove leading dot
-    const path = varPath.startsWith('.') ? varPath.substring(1) : varPath;
+    let path = String(varPath || '').trim().replace(/^\(+/, '').replace(/\)+$/, '');
+    if (path.startsWith('.')) path = path.substring(1);
+    if (!path) return vars['.'] ?? '';
 
-    // Handle .Config.key
+    if (path === 'Config') return this.config || vars.Config || '';
     if (path.startsWith('Config.')) {
       const configKey = path.substring(7);
-      return this.config[configKey] || '';
+      if (this.config && this.config[configKey] !== undefined && this.config[configKey] !== '') {
+        return this.config[configKey];
+      }
+      if (vars.Config && vars.Config[configKey] !== undefined) return vars.Config[configKey];
+      return this.config ? (this.config[configKey] ?? '') : '';
     }
 
-    // Handle .Query.key
     if (path.startsWith('Query.')) {
-      const queryKey = path.substring(6);
-      const query = vars.Query || {};
-      return query[queryKey] || '';
+      return this.walk(vars.Query || {}, path.substring(6));
     }
 
-    // Handle direct variable
-    return vars[path] || '';
+    if (path.startsWith('Result.')) {
+      return this.walk(vars.Result || {}, path.substring(7));
+    }
+
+    if (Object.prototype.hasOwnProperty.call(vars, path)) return vars[path];
+    return this.walk(vars, path);
+  }
+
+  walk(obj, path) {
+    if (!path) return obj ?? '';
+    const parts = path.split('.');
+    let current = obj;
+    for (const part of parts) {
+      if (current == null || current[part] === undefined || current[part] === null) return '';
+      current = current[part];
+    }
+    return current;
   }
 
   /**

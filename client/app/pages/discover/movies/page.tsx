@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useLoadMoreOnVisible } from "@/hooks/useLoadMoreOnVisible";
 import AddMovieModal from "@/components/AddMovieModal";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { useAuth } from "@/context/AuthContext";
@@ -126,6 +127,7 @@ const MoviesPage = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -773,28 +775,25 @@ const MoviesPage = () => {
     fetchMovies(1, false);
   }, [fetchMovies]);
 
-  // Infinite scroll handler
-  useEffect(() => {
-    const handleScroll = () => {
-      if (loading || loadingMore || !hasMore) return;
+  const loadNextPage = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    const nextPage = currentPage + 1;
+    if (nextPage <= totalPages) {
+      fetchMovies(nextPage, true);
+    }
+  }, [
+    loading,
+    loadingMore,
+    hasMore,
+    currentPage,
+    totalPages,
+    fetchMovies,
+  ]);
 
-      const scrollTop =
-        window.pageYOffset || document.documentElement.scrollTop;
-      const windowHeight = window.innerHeight;
-      const documentHeight = document.documentElement.scrollHeight;
-
-      // Load more when user is 200px from bottom
-      if (scrollTop + windowHeight >= documentHeight - 200) {
-        const nextPage = currentPage + 1;
-        if (nextPage <= totalPages) {
-          fetchMovies(nextPage, true);
-        }
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [currentPage, totalPages, hasMore, loading, loadingMore, fetchMovies]);
+  useLoadMoreOnVisible(loadMoreSentinelRef, {
+    enabled: hasMore && !loading && !loadingMore && media.length > 0,
+    onLoadMore: loadNextPage,
+  });
 
   const getMediaTitle = (item: TMDBMedia) => {
     return item.title || item.name || "Unknown";
@@ -858,114 +857,43 @@ const MoviesPage = () => {
         return;
       }
 
-      // Build search query: "Movie Title year"
-      const searchQuery = year ? `${title} ${year}` : title;
-
-      // Search for torrents using the Search API
       const token = localStorage.getItem("accessToken");
-      const torrentResponse = await axios.get(`${API_BASE_URL}/api/Search`, {
-        params: {
-          query: searchQuery,
-          categoryIds: "2000", // Movies
-          limit: 100,
-        },
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        timeout: 30000,
-      });
-
-      const results = torrentResponse.data.results || [];
-
-      if (results.length === 0) {
-        throw new Error(`No torrents found for ${title}`);
-      }
-
-      // Sort by indexer priority first (lower = higher priority), then by seeders
-      results.sort((a: any, b: any) => {
-        const aPriority = a.indexerPriority ?? 25;
-        const bPriority = b.indexerPriority ?? 25;
-        if (aPriority !== bPriority) {
-          return aPriority - bPriority;
-        }
-        const aSeeders = a.seeders ?? 0;
-        const bSeeders = b.seeders ?? 0;
-        return bSeeders - aSeeders;
-      });
-
-      // Get the best torrent (first after sorting)
-      const bestTorrent = results[0];
-
-      // Extract quality from torrent title
-      const titleLower = bestTorrent.title.toLowerCase();
-      let quality = "SD";
-      if (
-        titleLower.includes("2160p") ||
-        titleLower.includes("4k") ||
-        titleLower.includes("uhd")
-      ) {
-        quality = "2160p";
-      } else if (titleLower.includes("1080p")) {
-        quality = "1080p";
-      } else if (titleLower.includes("720p")) {
-        quality = "720p";
-      }
-
-      // Save movie to monitored list
       const posterUrl = item.poster_path
         ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
         : item.posterUrl || null;
 
-      await axios.post(`${API_BASE_URL}/api/MonitoredMovies`, {
-        userId: user.id,
-        tmdbId: item.id,
-        title: title,
-        posterUrl,
-        releaseDate: item.release_date || null,
-        overview: item.overview,
-        qualityProfile: "any",
-        minAvailability: "released",
-        monitor: "movieOnly",
-        status: "downloading",
-      });
-
-      // Download the torrent with full history data
-      const downloadResponse = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+      const { addMovieToMonitor, monitorAddNotificationTitle } = await import(
+        "@/lib/monitoring"
+      );
+      const result = await addMovieToMonitor(
         {
-          downloadUrl: bestTorrent.downloadUrl,
-          protocol: bestTorrent.protocol,
-          // History information
-          releaseName: bestTorrent.title,
-          indexer: bestTorrent.indexer,
-          indexerId: bestTorrent.indexerId,
-          size: bestTorrent.size,
-          sizeFormatted: bestTorrent.sizeFormatted,
-          seeders: bestTorrent.seeders,
-          leechers: bestTorrent.leechers,
-          quality: quality,
-          source: "QuickDownload",
-          mediaType: "movies",
-          mediaTitle: title,
+          userId: user.id,
           tmdbId: item.id,
+          title,
+          posterUrl,
+          releaseDate: item.release_date || null,
+          overview: item.overview,
+          qualityProfile: "any",
+          minAvailability: "released",
+          monitor: "movieOnly",
+          searchOnAdd: true,
         },
+        token,
       );
 
-      if (downloadResponse.data.success) {
-        setDownloadSuccess((prev) => new Set(prev).add(movieId));
-        showNotification(
-          "Download Started",
-          `Downloading: ${bestTorrent.title}`,
-          "success",
-        );
-        setTimeout(() => {
-          setDownloadSuccess((prev) => {
-            const next = new Set(prev);
-            next.delete(movieId);
-            return next;
-          });
-        }, 3000);
-      } else {
-        throw new Error(downloadResponse.data.error || "Failed to download");
-      }
+      setDownloadSuccess((prev) => new Set(prev).add(movieId));
+      showNotification(
+        monitorAddNotificationTitle(result),
+        result.message || `${title} is on your watch list`,
+        result.action === "grabbed" ? "success" : "info",
+      );
+      setTimeout(() => {
+        setDownloadSuccess((prev) => {
+          const next = new Set(prev);
+          next.delete(movieId);
+          return next;
+        });
+      }, 3000);
     } catch (error: any) {
       const errorMsg =
         error.response?.data?.error || error.message || "Download failed";
@@ -2298,6 +2226,14 @@ const MoviesPage = () => {
                   </React.Fragment>
                 ))}
             </div>
+
+            {hasMore && media.length > 0 && (
+              <div
+                ref={loadMoreSentinelRef}
+                aria-hidden
+                className="h-1 w-full"
+              />
+            )}
 
             {/* Loading more indicator */}
             {loadingMore && (

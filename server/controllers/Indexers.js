@@ -15,17 +15,14 @@ exports.createIndexer = async (req, res) => {
     
     // Generate cardigann_id from indexer name if not provided
     // Convert name to lowercase and remove spaces/special chars
-    let cardigannId = req.body.cardigannId;
-    if (!cardigannId && req.body.name) {
-      cardigannId = req.body.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, ''); // Remove special chars and spaces (keeps "the")
-    }
-    
+    const cardigannId = req.body.cardigannId || null;
+    const privacy = req.body.privacy === "Semi-Private" ? "Private" : req.body.privacy;
+    const settings = req.body.cardigannSettings || {};
+
     const newIndexer = await Indexers.create({
       name: req.body.name,
       protocol: req.body.protocol,
-      privacy: req.body.privacy,
+      privacy,
       priority: req.body.priority || 25,
       syncProfile: req.body.syncProfile || "Standard",
       enabled: req.body.enabled !== undefined ? req.body.enabled : true,
@@ -33,9 +30,9 @@ exports.createIndexer = async (req, res) => {
       baseUrl: req.body.baseUrl,
       availableBaseUrls: availableBaseUrls,
       seedRatio: req.body.seedRatio,
-      username: req.body.username,
-      password: req.body.password,
-      apiKey: req.body.apiKey,
+      username: settings.username || req.body.username,
+      password: settings.password || req.body.password,
+      apiKey: settings.apikey || req.body.apiKey,
       vipExpiration: req.body.vipExpiration,
       stripCyrillicLetters: req.body.stripCyrillicLetters || false,
       searchFreeleechOnly: req.body.searchFreeleechOnly || false,
@@ -48,7 +45,8 @@ exports.createIndexer = async (req, res) => {
       description: req.body.description,
       indexerType: req.body.indexerType || "Cardigann",
       status: req.body.status || "enabled",
-      cardigannId: cardigannId, // Set the cardigann ID for Cardigann indexers
+      cardigannId,
+      cardigannSettings: settings,
       userId: req.userId, // Keep owner for auditing, but indexers are shared globally
     });
     
@@ -64,7 +62,7 @@ exports.createIndexer = async (req, res) => {
 
 exports.readIndexers = async (req, res) => {
   const page = parseInt(req.query.page) || 0;
-  const limit = parseInt(req.query.limit) || 25;
+  const limit = parseInt(req.query.limit) || 500;
   const offset = page * limit;
   try {
     const result = await Indexers.findAndCountAll({
@@ -75,13 +73,19 @@ exports.readIndexers = async (req, res) => {
     });
     
     // Add available base URLs to each indexer
+    const isAdmin = canManageIndexerSettings(req.user);
     const dataWithBaseUrls = result.rows.map((indexer) => {
       try {
         const indexerData = indexer.toJSON();
-        // Get available base URLs, fallback to empty array if name is missing
-        indexerData.availableBaseUrls = indexer.name 
-          ? getBaseUrlsForIndexer(indexer.name) 
+        indexerData.availableBaseUrls = indexer.name
+          ? getBaseUrlsForIndexer(indexer.name)
           : [];
+        if (!isAdmin) {
+          delete indexerData.password;
+          delete indexerData.apiKey;
+          delete indexerData.username;
+          delete indexerData.cardigannSettings;
+        }
         return indexerData;
       } catch (mapErr) {
         console.error("Error mapping indexer:", mapErr);
@@ -117,7 +121,13 @@ exports.readIndexerFromID = async (req, res) => {
     const availableBaseUrls = getBaseUrlsForIndexer(result.name);
     const response = result.toJSON();
     response.availableBaseUrls = availableBaseUrls;
-    
+    if (!canManageIndexerSettings(req.user)) {
+      delete response.password;
+      delete response.apiKey;
+      delete response.username;
+      delete response.cardigannSettings;
+    }
+
     res.json(response);
   } catch (err) {
     console.log(err);
@@ -131,28 +141,24 @@ exports.updateIndexer = async (req, res) => {
       return res.status(403).json({ error: "Only admins can manage indexers" });
     }
 
-    // Generate cardigann_id from indexer name if not provided
-    let cardigannId = req.body.cardigannId;
-    if (!cardigannId && req.body.name) {
-      cardigannId = req.body.name
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, ''); // Remove special chars and spaces (keeps "the")
-    }
-    
+    const cardigannId = req.body.cardigannId || null;
+    const privacy = req.body.privacy === "Semi-Private" ? "Private" : req.body.privacy;
+    const settings = req.body.cardigannSettings || {};
+
     const [updated] = await Indexers.update(
       {
         name: req.body.name,
         protocol: req.body.protocol,
-        privacy: req.body.privacy,
+        privacy,
         priority: req.body.priority,
         syncProfile: req.body.syncProfile,
         enabled: req.body.enabled,
         redirected: req.body.redirected,
         baseUrl: req.body.baseUrl,
         seedRatio: req.body.seedRatio,
-        username: req.body.username,
-        password: req.body.password,
-        apiKey: req.body.apiKey,
+        username: settings.username || req.body.username,
+        password: settings.password || req.body.password,
+        apiKey: settings.apikey || req.body.apiKey,
         vipExpiration: req.body.vipExpiration,
         stripCyrillicLetters: req.body.stripCyrillicLetters,
         searchFreeleechOnly: req.body.searchFreeleechOnly,
@@ -165,7 +171,8 @@ exports.updateIndexer = async (req, res) => {
         description: req.body.description,
         indexerType: req.body.indexerType,
         status: req.body.status,
-        cardigannId: cardigannId, // Set the cardigann ID
+        ...(req.body.cardigannId ? { cardigannId } : {}),
+        ...(req.body.cardigannSettings ? { cardigannSettings: settings } : {}),
       },
       {
         where: { id: req.params.id },
@@ -206,9 +213,12 @@ exports.deleteIndexer = async (req, res) => {
 
 exports.syncAppIndexers = async (req, res) => {
   try {
-    // This would sync indexers with connected apps (Sonarr, Radarr, etc.)
-    // For now, just return success
-    res.json({ message: "Indexers synced successfully" });
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can manage indexers" });
+    }
+    res.json({
+      message: "Indexer definitions load from the YAML directory. Add a file there and it shows up in Add Indexer.",
+    });
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: err.message });
@@ -217,25 +227,40 @@ exports.syncAppIndexers = async (req, res) => {
 
 exports.testAllIndexers = async (req, res) => {
   try {
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can manage indexers" });
+    }
+
     const indexers = await Indexers.findAll({
       where: { enabled: true },
     });
-    
-    // Simulate testing each indexer
-    const results = await Promise.all(
-      indexers.map(async (indexer) => {
-        // In a real implementation, this would test the indexer connection
-        const testResult = {
-          id: indexer.id,
-          name: indexer.name,
-          success: Math.random() > 0.2, // 80% success rate for demo
-          message: Math.random() > 0.2 ? "Connection successful" : "Connection failed",
-        };
-        return testResult;
-      })
+
+    const { searchConfiguredIndexers } = require("../services/configuredIndexerSearch");
+    const { indexerErrors, results } = await searchConfiguredIndexers(
+      indexers.map((indexer) => indexer.toJSON()),
+      "test",
+      { limit: 5 }
     );
-    
-    res.json({ results });
+    const counts = {};
+    for (const result of results) {
+      counts[result.indexerId] = (counts[result.indexerId] || 0) + 1;
+    }
+
+    const payload = indexers.map((indexer) => {
+      const error = indexerErrors.find((entry) => entry.id === indexer.id);
+      const count = counts[indexer.id] || 0;
+      const success = !error && count > 0;
+      return {
+        id: indexer.id,
+        indexerId: indexer.id,
+        name: indexer.name,
+        success,
+        error: error?.error || (count ? undefined : "Connected, but the test query returned no releases"),
+        message: success ? `Connection successful (${count} results)` : (error?.error || "No releases parsed"),
+      };
+    });
+
+    res.json({ results: payload });
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: err.message });
@@ -274,43 +299,22 @@ exports.testIndexer = async (req, res) => {
       const definitionsPath = path.join(__dirname, '../cardigann-indexer-yamls');
       const cardigann = getCardigannEngine(definitionsPath);
       
-      // Find matching Cardigann definition
-      const allCardigannIndexers = cardigann.getAllIndexers();
-      let cardigannId = null;
-      
-      // Try exact name match
-      const nameMatch = allCardigannIndexers.find(ci => 
-        ci.name.toLowerCase() === indexer.name.toLowerCase()
-      );
-      
-      if (nameMatch) {
-        cardigannId = nameMatch.id;
-      } else if (indexer.baseUrl) {
-        // Try URL match
-        try {
-          const indexerDomain = new URL(indexer.baseUrl).hostname.toLowerCase();
-          const urlMatch = allCardigannIndexers.find(ci => {
-            return ci.links.some(link => {
-              try {
-                const linkDomain = new URL(link).hostname.toLowerCase();
-                return indexerDomain.includes(linkDomain) || linkDomain.includes(indexerDomain);
-              } catch {
-                return false;
-              }
-            });
-          });
-          if (urlMatch) {
-            cardigannId = urlMatch.id;
-          }
-        } catch (e) {
-          // Invalid URL
-        }
-      }
-      
+      const { definitionIdFor } = require("../services/configuredIndexerSearch");
+      const cardigannId = indexer.cardigannId || definitionIdFor(indexer);
+
       if (cardigannId) {
         try {
           const scraper = cardigann.getScraper(cardigannId);
-          const testResult = await scraper.test();
+          const storedSettings = indexer.cardigannSettings || {};
+          const testResult = await scraper.test({
+            baseUrl: indexer.baseUrl,
+            settings: {
+              ...(typeof storedSettings === "string" ? JSON.parse(storedSettings) : storedSettings),
+              username: indexer.username,
+              password: indexer.password,
+              apikey: indexer.apiKey,
+            },
+          });
           
           if (testResult.success) {
             // Mark as verified
@@ -544,60 +548,159 @@ exports.testIndexer = async (req, res) => {
   }
 };
 
+function privacyLabel(type) {
+  if (type === "private") return "Private";
+  if (type === "semi-private") return "Semi-Private";
+  return "Public";
+}
+
+function catalogFromDefinitions() {
+  const path = require("path");
+  const { getCardigannEngine } = require("../cardigann");
+  const engine = getCardigannEngine(path.join(__dirname, "../cardigann-indexer-yamls"));
+  return engine.getAllIndexers().map((definition) => {
+    const categories = [...new Set((definition.caps?.categorymappings || []).map((mapping) => mapping.cat).filter(Boolean))];
+    return {
+      id: definition.id,
+      name: definition.name,
+      description: definition.description || "",
+      language: definition.language || "en-US",
+      protocol: "torrent",
+      privacy: privacyLabel(definition.type),
+      indexerType: "Cardigann",
+      categories,
+      availableBaseUrls: definition.links || [],
+      settings: (definition.settings || []).map((setting) => ({
+        name: setting.name,
+        type: setting.type,
+        label: setting.label,
+        default: setting.default,
+        options: setting.options || null,
+      })),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 exports.getAvailableIndexers = async (req, res) => {
   try {
-    // Fetch from the AvailableIndexers database table
-    const whereClause = {};
-    
-    // Apply filters if provided
-    if (req.query.protocol) {
-      whereClause.protocol = req.query.protocol;
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can add indexers" });
     }
-    if (req.query.language) {
-      whereClause.language = req.query.language;
+
+    let availableIndexers = catalogFromDefinitions();
+
+    if (req.query.protocol) {
+      availableIndexers = availableIndexers.filter((indexer) => indexer.protocol === req.query.protocol);
     }
     if (req.query.privacy) {
-      whereClause.privacy = req.query.privacy;
+      availableIndexers = availableIndexers.filter((indexer) => indexer.privacy === req.query.privacy);
     }
-    if (req.query.verified === 'true' || req.query.verified === true) {
-      whereClause.verified = true;
+    if (req.query.language) {
+      availableIndexers = availableIndexers.filter((indexer) => indexer.language === req.query.language);
     }
-    
-    // Fetch all available indexers from database
-    let availableIndexers = await AvailableIndexers.findAll({
-      where: whereClause,
-      order: [["name", "ASC"]],
-    });
-    
-    // Convert Sequelize instances to plain objects
-    availableIndexers = availableIndexers.map((indexer) => {
-      const indexerData = indexer.toJSON();
-      // Ensure categories and availableBaseUrls are arrays
-      if (!Array.isArray(indexerData.categories)) {
-        indexerData.categories = [];
-      }
-      if (!Array.isArray(indexerData.availableBaseUrls)) {
-        indexerData.availableBaseUrls = [];
-      }
-      return indexerData;
-    });
-    
-    // Apply search filter if provided (case-insensitive search in name and description)
     if (req.query.search) {
-      const searchLower = req.query.search.toLowerCase();
+      const searchLower = String(req.query.search).toLowerCase();
       availableIndexers = availableIndexers.filter(
-        (i) =>
-          i.name.toLowerCase().includes(searchLower) ||
-          (i.description && i.description.toLowerCase().includes(searchLower))
+        (indexer) =>
+          indexer.name.toLowerCase().includes(searchLower) ||
+          indexer.description.toLowerCase().includes(searchLower) ||
+          indexer.id.toLowerCase().includes(searchLower)
       );
     }
-    
-    res.json({ 
-      indexers: availableIndexers, 
-      total: availableIndexers.length 
+
+    res.json({
+      indexers: availableIndexers,
+      total: availableIndexers.length,
     });
   } catch (err) {
     console.error("Error fetching available indexers:", err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getDefinitionSync = async (req, res) => {
+  const { readState } = require("../services/indexerDefinitionSync");
+  res.json(readState());
+};
+
+exports.listDefinitionCatalog = async (req, res) => {
+  try {
+    const { listDefinitions } = require("../services/indexerDefinitionSync");
+    res.json(listDefinitions());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.testDefinitionCatalog = async (req, res) => {
+  try {
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can test indexer definitions" });
+    }
+    const { testDefinitions } = require("../services/indexerDefinitionSync");
+    res.json(await testDefinitions({ userId: req.user.id }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.testOneDefinition = async (req, res) => {
+  try {
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can test indexer definitions" });
+    }
+    const { testOneDefinition } = require("../services/indexerDefinitionSync");
+    res.json(await testOneDefinition(req.params.id, { userId: req.user.id }));
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+};
+
+exports.updateDefinitionSync = async (req, res) => {
+  try {
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can manage indexer definitions" });
+    }
+    const { updateSettings } = require("../services/indexerDefinitionSync");
+    const { refreshIndexerDefinitionScheduler } = require("../services/indexerDefinitionScheduler");
+    const state = updateSettings({
+      enabled: req.body.enabled,
+      intervalHours: req.body.intervalHours,
+    });
+    refreshIndexerDefinitionScheduler();
+    res.json(state);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+exports.runDefinitionSync = async (req, res) => {
+  try {
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can manage indexer definitions" });
+    }
+    const { syncDefinitions } = require("../services/indexerDefinitionSync");
+    const { refreshIndexerDefinitionScheduler } = require("../services/indexerDefinitionScheduler");
+    const state = await syncDefinitions();
+    refreshIndexerDefinitionScheduler();
+    res.json(state);
+  } catch (err) {
+    const { readState } = require("../services/indexerDefinitionSync");
+    res.status(500).json({ error: err.message, ...readState() });
+  }
+};
+
+exports.getIndexerDefinition = async (req, res) => {
+  try {
+    if (!canManageIndexerSettings(req.user)) {
+      return res.status(403).json({ error: "Only admins can view indexer definitions" });
+    }
+    const match = catalogFromDefinitions().find((indexer) => indexer.id === req.params.id);
+    if (!match) {
+      return res.status(404).json({ error: "Definition not found" });
+    }
+    res.json(match);
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };

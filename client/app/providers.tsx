@@ -2,7 +2,7 @@
 
 import type { ThemeProviderProps } from "next-themes";
 import * as React from "react";
-import { HeroUIProvider } from "@heroui/react";
+import { HeroUIProvider, ToastProvider } from "@heroui/react";
 import { useRouter } from "next/navigation";
 import { ThemeProvider as NextThemesProvider } from "next-themes";
 
@@ -16,7 +16,16 @@ export function Providers({ children, themeProps }: ProvidersProps) {
 
   return (
     <HeroUIProvider navigate={router.push}>
-      <NextThemesProvider {...themeProps}>{children}</NextThemesProvider>
+      <ToastProvider maxVisibleToasts={4} placement="top-right" />
+      <NextThemesProvider
+        attribute="class"
+        defaultTheme="dark"
+        enableSystem={false}
+        forcedTheme="dark"
+        {...themeProps}
+      >
+        {children}
+      </NextThemesProvider>
     </HeroUIProvider>
   );
 }

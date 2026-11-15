@@ -1,133 +1,71 @@
 const MonitoredMovies = require("../models/MonitoredMovies");
-const Settings = require("../models/Settings");
-const { checkMonitoredMovie, checkUserMonitoredMovies } = require("../services/monitoringService");
-const { findMovieFile, getUserMovieDirectory } = require("../services/fileScanner");
+const MonitoredSeries = require("../models/MonitoredSeries");
+const {
+  addMonitoredMovie,
+  probeMovieLibrary,
+  processMonitoredMovie,
+  runUserMonitoringCycle,
+} = require("../services/monitoring");
+const { isMonitoringAdmin, withOwnerUsernames } = require("../utils/monitoredListHelpers");
 
-/**
- * Get all monitored movies for a user
- */
 exports.getMonitoredMovies = async (req, res) => {
   try {
-    const { userId } = req.query;
+    const isAdmin = isMonitoringAdmin(req.user);
+    const { userId, scope } = req.query;
+    const requesterId = req.userId;
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
+    let movies;
+    if (scope === "all" && isAdmin) {
+      movies = await MonitoredMovies.findAll({
+        order: [["createdAt", "DESC"]],
+      });
+    } else {
+      const targetUserId = userId || requesterId;
+      if (!targetUserId) {
+        return res.status(400).json({ error: "userId is required" });
+      }
+      if (targetUserId !== requesterId && !isAdmin) {
+        return res.status(403).json({ error: "Not authorized to view this monitored list" });
+      }
+      movies = await MonitoredMovies.findAll({
+        where: { userId: targetUserId },
+        order: [["createdAt", "DESC"]],
+      });
     }
 
-    const movies = await MonitoredMovies.findAll({
-      where: { userId },
-      order: [["createdAt", "DESC"]],
+    const enriched = await withOwnerUsernames(movies);
+    res.json({
+      success: true,
+      movies: enriched,
+      scope: scope === "all" && isAdmin ? "all" : "user",
     });
-
-    res.json({ success: true, movies });
   } catch (error) {
     console.error("Error fetching monitored movies:", error);
     res.status(500).json({ error: "Failed to fetch monitored movies" });
   }
 };
 
-/**
- * Add a movie to monitored list
- */
 exports.addMonitoredMovie = async (req, res) => {
   try {
-    const {
-      userId,
-      tmdbId,
-      title,
-      posterUrl,
-      releaseDate,
-      overview,
-      qualityProfile,
-      minAvailability,
-      monitor,
-      status, // Optional: frontend can pass 'downloaded' if file already exists
-    } = req.body;
-
-    if (!userId || !tmdbId || !title) {
-      return res.status(400).json({
-        error: "userId, tmdbId, and title are required",
-      });
-    }
-
-    // Get user's settings to check autoDownload preference
-    const settings = await Settings.findOne({ where: { userId } });
-    const autoDownload = settings?.autoDownload ?? true;
-
-    // Check if movie is already monitored by this user
-    const existing = await MonitoredMovies.findOne({
-      where: { userId, tmdbId },
+    const result = await addMonitoredMovie({
+      ...req.body,
+      searchOnAdd: req.body.searchOnAdd !== false,
     });
-
-    let movie;
-    let isUpdate = false;
-
-    // Determine status: if frontend says 'downloaded', use that; otherwise keep existing or default to 'monitoring'
-    const determineStatus = (existingMovie) => {
-      if (status === 'downloaded') return 'downloaded';
-      if (existingMovie && existingMovie.status === 'downloaded') return 'downloaded';
-      return 'monitoring';
-    };
-
-    if (existing) {
-      // Update existing movie instead of creating duplicate
-      isUpdate = true;
-      await existing.update({
-        title,
-        posterUrl: posterUrl || null,
-        releaseDate: releaseDate || null,
-        overview: overview || null,
-        qualityProfile: qualityProfile || "any",
-        minAvailability: minAvailability || "released",
-        monitor: monitor || "movieOnly",
-        status: determineStatus(existing),
-      });
-      movie = existing;
-    } else {
-      // Create new movie
-      movie = await MonitoredMovies.create({
-        userId,
-        tmdbId,
-        title,
-        posterUrl: posterUrl || null,
-        releaseDate: releaseDate || null,
-        overview: overview || null,
-        qualityProfile: qualityProfile || "any",
-        minAvailability: minAvailability || "released",
-        monitor: monitor || "movieOnly",
-        status: status === 'downloaded' ? 'downloaded' : 'monitoring',
-      });
-    }
-
-    // Return movie with autoDownload setting so frontend knows whether to download
-    res.json({ 
-      success: true, 
-      movie, 
-      isUpdate, 
-      autoDownload, // Include user's autoDownload setting
-    });
+    res.json(result);
   } catch (error) {
     console.error("Error adding monitored movie:", error);
-    res.status(500).json({ error: "Failed to add monitored movie" });
+    res.status(500).json({ error: error.message || "Failed to add monitored movie" });
   }
 };
 
-/**
- * Update a monitored movie
- */
 exports.updateMonitoredMovie = async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = req.body;
-
     const movie = await MonitoredMovies.findByPk(id);
-
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
     }
-
-    await movie.update(updates);
-
+    await movie.update(req.body);
     res.json({ success: true, movie });
   } catch (error) {
     console.error("Error updating monitored movie:", error);
@@ -135,28 +73,23 @@ exports.updateMonitoredMovie = async (req, res) => {
   }
 };
 
-/**
- * Remove a movie from monitored list
- */
 exports.removeMonitoredMovie = async (req, res) => {
   try {
     const { id } = req.params;
     const { userId } = req.query;
-
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
-    }
-
-    const movie = await MonitoredMovies.findOne({
-      where: { id, userId },
-    });
-
+    const movie = await MonitoredMovies.findByPk(id);
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
     }
-
+    const isAdmin = isMonitoringAdmin(req.user);
+    if (req.user) {
+      if (movie.userId !== req.userId && !isAdmin) {
+        return res.status(403).json({ error: "Not authorized to remove this movie" });
+      }
+    } else if (!userId || movie.userId !== userId) {
+      return res.status(403).json({ error: "Not authorized to remove this movie" });
+    }
     await movie.destroy();
-
     res.json({ success: true, message: "Movie removed from monitoring" });
   } catch (error) {
     console.error("Error removing monitored movie:", error);
@@ -164,21 +97,13 @@ exports.removeMonitoredMovie = async (req, res) => {
   }
 };
 
-/**
- * Check if a movie is monitored by user
- */
 exports.isMovieMonitored = async (req, res) => {
   try {
     const { userId, tmdbId } = req.query;
-
     if (!userId || !tmdbId) {
       return res.status(400).json({ error: "userId and tmdbId are required" });
     }
-
-    const movie = await MonitoredMovies.findOne({
-      where: { userId, tmdbId },
-    });
-
+    const movie = await MonitoredMovies.findOne({ where: { userId, tmdbId } });
     res.json({ success: true, isMonitored: !!movie, movie });
   } catch (error) {
     console.error("Error checking if movie is monitored:", error);
@@ -186,21 +111,13 @@ exports.isMovieMonitored = async (req, res) => {
   }
 };
 
-/**
- * Manually check a single monitored movie for file existence
- */
 exports.checkMovieFile = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    const movie = await MonitoredMovies.findByPk(id);
-
+    const movie = await MonitoredMovies.findByPk(req.params.id);
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
     }
-
-    const result = await checkMonitoredMovie(movie);
-
+    const result = await processMonitoredMovie(movie);
     res.json({ success: true, result });
   } catch (error) {
     console.error("Error checking movie file:", error);
@@ -208,81 +125,67 @@ exports.checkMovieFile = async (req, res) => {
   }
 };
 
-/**
- * Manually check all monitored movies for a user
- */
+/** Full Radarr-style cycle: library sync + optional grabs (respects auto-download budget). */
 exports.checkAllMovieFiles = async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId, scope } = req.query;
+    const isAdmin = isMonitoringAdmin(req.user);
 
-    if (!userId) {
-      return res.status(400).json({ error: "userId is required" });
+    if (scope === "all" && isAdmin) {
+      const [movieRows, seriesRows] = await Promise.all([
+        MonitoredMovies.findAll({ attributes: ["userId"], raw: true }),
+        MonitoredSeries.findAll({ attributes: ["userId"], raw: true }),
+      ]);
+      const userIds = [
+        ...new Set([...movieRows, ...seriesRows].map((row) => row.userId).filter(Boolean)),
+      ];
+      const results = [];
+      for (const uid of userIds) {
+        results.push({ userId: uid, ...(await runUserMonitoringCycle(uid)) });
+      }
+      return res.json({ success: true, scope: "all", results });
     }
 
-    const results = await checkUserMonitoredMovies(userId);
-
+    const targetUserId = userId || req.userId;
+    if (!targetUserId) {
+      return res.status(400).json({ error: "userId is required" });
+    }
+    if (targetUserId !== req.userId && !isAdmin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const results = await runUserMonitoringCycle(targetUserId);
     res.json({ success: true, results });
   } catch (error) {
-    console.error("Error checking all movie files:", error);
-    res.status(500).json({ error: "Failed to check movie files" });
+    console.error("Error running monitoring cycle:", error);
+    res.status(500).json({ error: "Failed to run monitoring cycle" });
   }
 };
 
-/**
- * Check if a movie file exists BEFORE adding to monitored list
- * This allows checking for existing files without creating a monitored entry
- */
 exports.checkFileExists = async (req, res) => {
   try {
     const { userId, title, releaseDate, tmdbId } = req.body;
-
     if (!userId || !title) {
       return res.status(400).json({ error: "userId and title are required" });
     }
-
-    // Get user's movie directory
-    const movieDirectory = await getUserMovieDirectory(userId);
-    
-    if (!movieDirectory) {
-      return res.json({ 
-        success: true, 
-        exists: false, 
-        message: "Movie directory not configured" 
-      });
-    }
-
-    // Create a mock movie object for the file finder
-    const mockMovie = {
-      title,
-      releaseDate,
-      tmdbId,
-    };
-
-    // Check if file exists
-    const fileInfo = await findMovieFile(mockMovie, movieDirectory);
-
-    if (fileInfo && fileInfo.found) {
-      return res.json({
-        success: true,
-        exists: true,
-        fileInfo: {
-          fileName: fileInfo.fileName,
-          filePath: fileInfo.filePath,
-          fileSize: fileInfo.fileSize,
-          fileSizeFormatted: fileInfo.fileSizeFormatted,
-        },
-        message: `File already exists: ${fileInfo.fileName}`,
-      });
-    }
-
-    return res.json({
-      success: true,
-      exists: false,
-      message: "File not found in library",
-    });
+    const probe = await probeMovieLibrary(userId, { title, releaseDate, tmdbId });
+    res.json({ success: true, ...probe, exists: probe.exists });
   } catch (error) {
     console.error("Error checking file existence:", error);
     res.status(500).json({ error: "Failed to check file existence" });
   }
 };
 
+/** Manual grab from Monitored UI — same path as automatic monitoring. */
+exports.grabMonitoredMovie = async (req, res) => {
+  try {
+    const movie = await MonitoredMovies.findByPk(req.params.id);
+    if (!movie) {
+      return res.status(404).json({ error: "Movie not found" });
+    }
+    const result = await processMonitoredMovie(movie, { forceSearch: true, grabBudget: { remaining: 1 } });
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error("Error grabbing monitored movie:", error);
+    res.status(500).json({ error: error.message || "Failed to grab release" });
+  }
+};

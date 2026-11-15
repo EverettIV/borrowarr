@@ -59,6 +59,7 @@ interface MonitoredMovie {
   lastChecked: string | null;
   createdAt: string;
   updatedAt: string;
+  ownerUsername?: string | null;
   type?: "movie";
 }
 
@@ -78,6 +79,7 @@ interface MonitoredSeries {
   selectedEpisodes: string | null;
   createdAt: string;
   updatedAt: string;
+  ownerUsername?: string | null;
   type?: "series";
 }
 
@@ -154,17 +156,30 @@ const Monitored = () => {
     }
   }, [user, loadingAuth, router]);
 
+  const isAdmin = Boolean(user?.permissions?.admin);
+
+  const monitoredAuthHeaders = () => {
+    const token = localStorage.getItem("accessToken");
+    return token ? { Authorization: `Bearer ${token}` } : undefined;
+  };
+
   const fetchMonitoredContent = async () => {
     if (!user) return;
 
     try {
       setLoading(true);
+      const listParams: Record<string, string> = { userId: user.id };
+      if (isAdmin) {
+        listParams.scope = "all";
+      }
       const [moviesResponse, seriesResponse] = await Promise.all([
         axios.get(`${API_BASE_URL}/api/MonitoredMovies`, {
-          params: { userId: user.id },
+          params: listParams,
+          headers: monitoredAuthHeaders(),
         }),
         axios.get(`${API_BASE_URL}/api/MonitoredSeries`, {
-          params: { userId: user.id },
+          params: listParams,
+          headers: monitoredAuthHeaders(),
         }),
       ]);
       setMovies(
@@ -186,7 +201,7 @@ const Monitored = () => {
     }
   };
 
-  const handleRemoveMovie = async (movieId: number) => {
+  const handleRemoveMovie = async (movie: MonitoredMovie) => {
     if (!user) return;
 
     if (
@@ -195,26 +210,27 @@ const Monitored = () => {
       return;
     }
 
-    setDeleting((prev) => new Set(prev).add(movieId));
+    setDeleting((prev) => new Set(prev).add(movie.id));
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/MonitoredMovies/${movieId}`, {
-        params: { userId: user.id },
+      await axios.delete(`${API_BASE_URL}/api/MonitoredMovies/${movie.id}`, {
+        params: { userId: movie.userId },
+        headers: monitoredAuthHeaders(),
       });
-      setMovies((prev) => prev.filter((m) => m.id !== movieId));
+      setMovies((prev) => prev.filter((m) => m.id !== movie.id));
     } catch (error) {
       console.error("Error removing movie:", error);
       alert("Failed to remove movie from monitoring");
     } finally {
       setDeleting((prev) => {
         const next = new Set(prev);
-        next.delete(movieId);
+        next.delete(movie.id);
         return next;
       });
     }
   };
 
-  const handleRemoveSeries = async (seriesId: number) => {
+  const handleRemoveSeries = async (seriesItem: MonitoredSeries) => {
     if (!user) return;
 
     if (
@@ -223,20 +239,21 @@ const Monitored = () => {
       return;
     }
 
-    setDeletingSeries((prev) => new Set(prev).add(seriesId));
+    setDeletingSeries((prev) => new Set(prev).add(seriesItem.id));
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/MonitoredSeries/${seriesId}`, {
-        params: { userId: user.id },
+      await axios.delete(`${API_BASE_URL}/api/MonitoredSeries/${seriesItem.id}`, {
+        params: { userId: seriesItem.userId },
+        headers: monitoredAuthHeaders(),
       });
-      setSeries((prev) => prev.filter((s) => s.id !== seriesId));
+      setSeries((prev) => prev.filter((s) => s.id !== seriesItem.id));
     } catch (error) {
       console.error("Error removing series:", error);
       alert("Failed to remove series from monitoring");
     } finally {
       setDeletingSeries((prev) => {
         const next = new Set(prev);
-        next.delete(seriesId);
+        next.delete(seriesItem.id);
         return next;
       });
     }
@@ -250,178 +267,11 @@ const Monitored = () => {
 
     try {
       const token = localStorage.getItem("accessToken");
-      const year = movie.releaseDate
-        ? new Date(movie.releaseDate).getFullYear()
-        : "";
-      const searchQuery = year ? `${movie.title} ${year}` : movie.title;
-
-      // Robust search with retry logic for reliable results
-      const MAX_RETRIES = 2;
-      const RETRY_DELAY = 1500;
-      let allResults: TorrentResult[] = [];
-
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        console.log(
-          `[Monitored] Searching for movie: "${searchQuery}" (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
-        );
-
-        try {
-          const torrentResponse = await axios.get(
-            `${API_BASE_URL}/api/Search`,
-            {
-              params: {
-                query: searchQuery,
-                categoryIds: "2000",
-                limit: 1000,
-                fresh: attempt === 0 ? "true" : undefined, // Fresh results on first attempt
-              },
-              headers: token
-                ? {
-                    Authorization: `Bearer ${token}`,
-                  }
-                : undefined,
-              timeout: 45000,
-            },
-          );
-
-          allResults = torrentResponse.data.results || [];
-          console.log(
-            `[Monitored] Search returned ${allResults.length} results (attempt ${attempt + 1})`,
-          );
-
-          // If we got results, break out of retry loop
-          if (allResults.length > 0) {
-            break;
-          }
-
-          // No results - wait and retry if we haven't exhausted retries
-          if (attempt < MAX_RETRIES) {
-            console.log(
-              `[Monitored] No results, retrying in ${RETRY_DELAY}ms...`,
-            );
-            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-          }
-        } catch (searchError) {
-          console.error(
-            `[Monitored] Search attempt ${attempt + 1} failed:`,
-            searchError,
-          );
-          if (attempt < MAX_RETRIES) {
-            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-          }
-        }
-      }
-
-      if (allResults.length === 0) {
-        throw new Error(`No torrents found for ${movie.title}`);
-      }
-
-      // Filter torrents by quality profile
-      let filteredTorrents = allResults;
-      if (movie.qualityProfile !== "any") {
-        filteredTorrents = filteredTorrents.filter((torrent: TorrentResult) => {
-          const title = torrent.title.toLowerCase();
-          switch (movie.qualityProfile) {
-            case "hd-720p-1080p":
-              return title.includes("720p") || title.includes("1080p");
-            case "hd-720p":
-              return title.includes("720p");
-            case "hd-1080p":
-              return title.includes("1080p");
-            case "sd":
-              return (
-                !title.includes("720p") &&
-                !title.includes("1080p") &&
-                !title.includes("2160p") &&
-                !title.includes("4k")
-              );
-            case "ultra-hd":
-              return (
-                title.includes("2160p") ||
-                title.includes("4k") ||
-                title.includes("uhd")
-              );
-            default:
-              return true;
-          }
-        });
-      }
-
-      if (filteredTorrents.length === 0) {
-        throw new Error(
-          `No torrents found matching quality profile: ${movie.qualityProfile}`,
-        );
-      }
-
-      // Get the best torrent - prioritize by SEEDERS first (most seeders = best)
-      const bestTorrent = filteredTorrents.reduce((best: any, current: any) => {
-        // Prioritize by seeders (descending - most seeders first)
-        const bestSeeders = best.seeders || 0;
-        const currentSeeders = current.seeders || 0;
-        if (currentSeeders > bestSeeders) return current;
-        if (currentSeeders < bestSeeders) return best;
-
-        // If seeders are equal, use indexer priority as tiebreaker
-        const bestPriority = best.indexerPriority ?? 25;
-        const currentPriority = current.indexerPriority ?? 25;
-        return currentPriority < bestPriority ? current : best;
-      });
-
-      console.log(
-        `[Monitored] Selected best torrent with ${bestTorrent.seeders} seeders: ${bestTorrent.title}`,
-      );
-
-      // Extract quality from torrent title
-      const titleLower = bestTorrent.title.toLowerCase();
-      let quality = "SD";
-      if (
-        titleLower.includes("2160p") ||
-        titleLower.includes("4k") ||
-        titleLower.includes("uhd")
-      ) {
-        quality = "2160p";
-      } else if (titleLower.includes("1080p")) {
-        quality = "1080p";
-      } else if (titleLower.includes("720p")) {
-        quality = "720p";
-      }
-
-      // Download the torrent with history data
-      const downloadResponse = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
-        {
-          downloadUrl: bestTorrent.downloadUrl,
-          protocol: bestTorrent.protocol,
-          // History information
-          releaseName: bestTorrent.title,
-          indexer: bestTorrent.indexer,
-          indexerId: bestTorrent.indexerId,
-          size: bestTorrent.size,
-          sizeFormatted: bestTorrent.sizeFormatted,
-          seeders: bestTorrent.seeders,
-          leechers: bestTorrent.leechers,
-          quality: quality,
-          source: "MonitoredPage",
-          mediaType: "movies",
-          mediaTitle: movie.title,
-          tmdbId: movie.tmdbId,
-        },
-      );
-
-      if (downloadResponse.data.success) {
-        // Update movie status
-        await axios.put(`${API_BASE_URL}/api/MonitoredMovies/${movie.id}`, {
-          status: "downloading",
-          downloadedTorrentId: bestTorrent.id,
-          downloadedTorrentTitle: bestTorrent.title,
-        });
-
-        // Refresh movies list
-        await fetchMonitoredContent();
-        alert(`Successfully requested download for ${movie.title}`);
-      } else {
-        throw new Error(downloadResponse.data.error || "Failed to download");
-      }
+      const { grabMonitoredMovie } = await import("@/lib/monitoring");
+      const response = await grabMonitoredMovie(movie.id, token);
+      const msg = response.result?.message || `Grab started for ${movie.title}`;
+      await fetchMonitoredContent();
+      alert(response.result?.grab ? `Downloading: ${movie.title}` : msg);
     } catch (error: any) {
       const errorMsg =
         error.response?.data?.error || error.message || "Request failed";
@@ -442,189 +292,15 @@ const Monitored = () => {
     setRequestingSeries((prev) => new Set(prev).add(seriesId));
 
     try {
-      const title = series.title;
-      const year = series.firstAirDate
-        ? new Date(series.firstAirDate).getFullYear()
-        : "";
-
-      // Get TV show details including all seasons
-      const tvDetailsResponse = await axios.get(
-        `${API_BASE_URL}/api/TMDB/tv/${series.tmdbId}`,
-      );
-      if (!tvDetailsResponse.data.success) {
-        throw new Error("Failed to fetch TV show details");
-      }
-
-      const tvDetails = tvDetailsResponse.data.tv;
-      const numberOfSeasons = tvDetails.number_of_seasons || 0;
-
-      // Fetch all seasons with episodes
-      const seasonPromises = [];
-      for (let i = 1; i <= numberOfSeasons; i++) {
-        seasonPromises.push(
-          axios
-            .get(`${API_BASE_URL}/api/TMDB/tv/${series.tmdbId}/season/${i}`)
-            .then((res) => (res.data.success ? res.data.season : null))
-            .catch(() => null),
-        );
-      }
-
-      const seasons = (await Promise.all(seasonPromises)).filter(
-        (s) => s !== null,
-      );
-
-      // Download each episode
-      let successCount = 0;
-      let failCount = 0;
-
-      const MAX_RETRIES = 2;
-      const RETRY_DELAY = 1500;
-
-      for (const season of seasons) {
-        if (!season.episodes) continue;
-
-        for (const episode of season.episodes) {
-          try {
-            const token = localStorage.getItem("accessToken");
-            // Build search query: "Title S01E01"
-            const searchQuery = `${title} S${String(season.season_number).padStart(2, "0")}E${String(episode.episode_number).padStart(2, "0")}`;
-
-            // Robust search with retry logic
-            let allResults: TorrentResult[] = [];
-
-            for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-              console.log(
-                `[Monitored] Searching for episode: "${searchQuery}" (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
-              );
-
-              try {
-                const torrentResponse = await axios.get(
-                  `${API_BASE_URL}/api/Search`,
-                  {
-                    params: {
-                      query: searchQuery,
-                      categoryIds: "5000",
-                      limit: 1000,
-                      fresh: attempt === 0 ? "true" : undefined,
-                    },
-                    headers: token
-                      ? {
-                          Authorization: `Bearer ${token}`,
-                        }
-                      : undefined,
-                    timeout: 45000,
-                  },
-                );
-
-                allResults = torrentResponse.data.results || [];
-                console.log(
-                  `[Monitored] Search returned ${allResults.length} results (attempt ${attempt + 1})`,
-                );
-
-                if (allResults.length > 0) {
-                  break;
-                }
-
-                if (attempt < MAX_RETRIES) {
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, RETRY_DELAY),
-                  );
-                }
-              } catch (searchError) {
-                console.error(
-                  `[Monitored] Search attempt ${attempt + 1} failed:`,
-                  searchError,
-                );
-                if (attempt < MAX_RETRIES) {
-                  await new Promise((resolve) =>
-                    setTimeout(resolve, RETRY_DELAY),
-                  );
-                }
-              }
-            }
-
-            if (allResults.length > 0) {
-              // Get the best torrent - prioritize by SEEDERS first (most seeders = best)
-              const bestTorrent = allResults.reduce(
-                (best: any, current: any) => {
-                  const bestSeeders = best.seeders || 0;
-                  const currentSeeders = current.seeders || 0;
-                  if (currentSeeders > bestSeeders) return current;
-                  if (currentSeeders < bestSeeders) return best;
-
-                  const bestPriority = best.indexerPriority ?? 25;
-                  const currentPriority = current.indexerPriority ?? 25;
-                  return currentPriority < bestPriority ? current : best;
-                },
-              );
-
-              console.log(
-                `[Monitored] Selected best torrent with ${bestTorrent.seeders} seeders: ${bestTorrent.title}`,
-              );
-
-              // Extract quality from torrent title
-              const torrentTitleLower = bestTorrent.title.toLowerCase();
-              let quality = "SD";
-              if (
-                torrentTitleLower.includes("2160p") ||
-                torrentTitleLower.includes("4k") ||
-                torrentTitleLower.includes("uhd")
-              ) {
-                quality = "2160p";
-              } else if (torrentTitleLower.includes("1080p")) {
-                quality = "1080p";
-              } else if (torrentTitleLower.includes("720p")) {
-                quality = "720p";
-              }
-
-              // Download the torrent with history data
-              await axios.post(`${API_BASE_URL}/api/DownloadClients/grab`, {
-                downloadUrl: bestTorrent.downloadUrl,
-                protocol: bestTorrent.protocol,
-                releaseName: bestTorrent.title,
-                indexer: bestTorrent.indexer,
-                indexerId: bestTorrent.indexerId,
-                size: bestTorrent.size,
-                sizeFormatted: bestTorrent.sizeFormatted,
-                seeders: bestTorrent.seeders,
-                leechers: bestTorrent.leechers,
-                quality: quality,
-                source: "MonitoredPage",
-                mediaType: "tv",
-                mediaTitle: title,
-                tmdbId: series.tmdbId,
-                seasonNumber: season.season_number,
-                episodeNumber: episode.episode_number,
-              });
-
-              successCount++;
-            } else {
-              failCount++;
-            }
-
-            // Small delay between downloads
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          } catch (error) {
-            failCount++;
-            console.error(
-              `Failed to download episode ${season.season_number}x${episode.episode_number}:`,
-              error,
-            );
-          }
-        }
-      }
-
-      // Update series status
-      if (successCount > 0) {
-        await axios.put(`${API_BASE_URL}/api/MonitoredSeries/${series.id}`, {
-          status: "downloading",
-        });
-      }
-
-      // Refresh series list
+      const token = localStorage.getItem("accessToken");
+      const { grabMonitoredSeries } = await import("@/lib/monitoring");
+      const response = await grabMonitoredSeries(series.id, token);
       await fetchMonitoredContent();
+      const grabbed = response.result?.episodesGrabbed ?? 0;
       alert(
-        `Series requested!\n\nSuccessfully queued: ${successCount} episodes\nFailed: ${failCount} episodes`,
+        grabbed > 0
+          ? `Queued ${grabbed} episode grab(s) for ${series.title}`
+          : response.result?.message || `No grabs started for ${series.title}`,
       );
     } catch (error: any) {
       const errorMsg =
@@ -909,7 +585,14 @@ const Monitored = () => {
                   if (!user) return;
                   try {
                     setLoading(true);
-                    await axios.post(`${API_BASE_URL}/api/MonitoredMovies/check-all?userId=${user.id}`);
+                    const checkParams = isAdmin
+                      ? "scope=all"
+                      : `userId=${encodeURIComponent(user.id)}`;
+                    await axios.post(
+                      `${API_BASE_URL}/api/MonitoredMovies/check-all?${checkParams}`,
+                      undefined,
+                      { headers: monitoredAuthHeaders() },
+                    );
                     await fetchMonitoredContent();
                     alert("File check complete! Monitored list updated.");
                   } catch (error) {
@@ -935,7 +618,11 @@ const Monitored = () => {
           </Button>
           </>
         }
-        description="Manage your movies and series collection"
+        description={
+          isAdmin
+            ? "All users' monitored movies and series (household view)"
+            : "Manage your movies and series collection"
+        }
         icon={<Film className="h-6 w-6" />}
         title="Monitored Content"
       />
@@ -1154,7 +841,7 @@ const Monitored = () => {
             </CardBody>
           </Card>
         ) : (
-          <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 3xl:grid-cols-10 4xl:grid-cols-12 5xl:grid-cols-14 gap-2 sm:gap-3 md:gap-4 lg:gap-5">
+          <div className="grid gap-3 sm:gap-4 grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] sm:grid-cols-[repeat(auto-fill,minmax(10.5rem,1fr))] md:grid-cols-[repeat(auto-fill,minmax(11.5rem,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(12.5rem,1fr))]">
             {filteredItems.map((item) => {
               const isSeries = item.type === "series";
               const seriesItem = isSeries ? (item as MonitoredSeries) : null;
@@ -1168,12 +855,15 @@ const Monitored = () => {
                   ? new Date(movieItem.releaseDate).getFullYear()
                   : null;
 
+              const statusLabel =
+                item.status.charAt(0).toUpperCase() + item.status.slice(1);
+
               return (
-                <div className="flex flex-col" key={item.id}>
+                <div className="flex min-w-0 flex-col" key={item.id}>
                   {/* Image Section */}
                   <div
-                    className="relative aspect-[2/3] w-full overflow-hidden rounded-lg cursor-pointer"
-                    onClick={(e) => {
+                    className="relative aspect-[2/3] w-full min-w-0 overflow-hidden rounded-lg cursor-pointer"
+                    onClick={() => {
                       if (isSeries && seriesItem) {
                         // Handle series click - could open series modal or do nothing for now
                       } else if (movieItem) {
@@ -1184,11 +874,11 @@ const Monitored = () => {
                     {item.posterUrl ? (
                       <img
                         alt={item.title}
-                        className="w-full h-full object-cover"
+                        className="h-full w-full object-cover"
                         src={item.posterUrl}
                       />
                     ) : (
-                      <div className="w-full h-full bg-content2 flex items-center justify-center">
+                      <div className="flex h-full w-full items-center justify-center bg-content2">
                         {isSeries ? (
                           <Tv className="text-foreground/40" size={32} />
                         ) : (
@@ -1196,64 +886,63 @@ const Monitored = () => {
                         )}
                       </div>
                     )}
+                  </div>
 
-                    {/* Media Type Badge - Top Left */}
-                    <div className="absolute top-1.5 left-1.5 z-10">
+                  <div className="mt-2 min-w-0 space-y-1.5">
+                    <div className="flex flex-wrap gap-1">
                       <Chip
-                        className="text-[10px] sm:text-xs font-bold uppercase backdrop-blur-md"
-                        color={isSeries ? "secondary" : "primary"} 
+                        className="h-6 max-w-full text-[10px] font-bold uppercase"
+                        color={isSeries ? "secondary" : "primary"}
                         size="sm"
                         variant="flat"
                       >
                         {isSeries ? "TV" : "Movie"}
                       </Chip>
-                    </div>
-
-                    {/* Status Badge - Top Right */}
-                    <div className="absolute top-1.5 right-1.5 z-10 flex gap-1">
-                      {/* File Exists Indicator */}
-                      {movieItem && movieItem.fileExists && (
+                      {movieItem?.fileExists && (
                         <Chip
-                          className="text-[10px] sm:text-xs backdrop-blur-md"
+                          className="h-6 max-w-full text-[10px]"
                           color="success"
                           size="sm"
                           startContent={<CheckCircle2 size={12} />}
-                          title={`File found: ${movieItem.fileName || 'Found in library'}`}
+                          title={`File found: ${movieItem.fileName || "Found in library"}`}
                           variant="flat"
                         >
-                          <span className="hidden sm:inline">On Disk</span>
-                          <span className="sm:hidden">✓</span>
+                          On Disk
                         </Chip>
                       )}
-
                       <Chip
-                        className="text-[10px] sm:text-xs backdrop-blur-md"
+                        className="h-6 max-w-full text-[10px]"
                         color={getStatusColor(item.status)}
                         size="sm"
                         startContent={getStatusIcon(item.status)}
                         variant="flat"
                       >
-                        <span className="hidden sm:inline">
-                          {item.status.charAt(0).toUpperCase() +
-                            item.status.slice(1)}
-                        </span>
-                        <span className="sm:hidden">
-                          {item.status.charAt(0).toUpperCase()}
-                        </span>
+                        {statusLabel}
                       </Chip>
                     </div>
 
-                    {/* Title and Year Overlay - Bottom */}
-                    <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/95 via-black/80 to-transparent">
-                      <h3 className="font-semibold text-xs sm:text-sm text-white line-clamp-2 mb-0.5">
-                        {item.title}
-                      </h3>
-                      {year && (
-                        <p className="text-[10px] sm:text-xs text-white/70">
-                          {year}
-                        </p>
-                      )}
-                    </div>
+                    <h3
+                      className="cursor-pointer text-sm font-semibold leading-snug text-foreground line-clamp-2"
+                      onClick={() => {
+                        if (movieItem) {
+                          handleMovieClick(movieItem);
+                        }
+                      }}
+                      title={item.title}
+                    >
+                      {item.title}
+                    </h3>
+                    {year != null && (
+                      <p className="text-xs text-foreground/60">{year}</p>
+                    )}
+                    {isAdmin && item.ownerUsername && (
+                      <p
+                        className="text-xs text-foreground/50 line-clamp-2"
+                        title={`Requested by ${item.ownerUsername}`}
+                      >
+                        Requested by {item.ownerUsername}
+                      </p>
+                    )}
                   </div>
 
                   {/* Action Buttons */}
@@ -1292,9 +981,9 @@ const Monitored = () => {
                       }
                       onPress={() => {
                         if (isSeries && seriesItem) {
-                          handleRemoveSeries(seriesItem.id);
+                          handleRemoveSeries(seriesItem);
                         } else if (movieItem) {
-                          handleRemoveMovie(movieItem.id);
+                          handleRemoveMovie(movieItem);
                         }
                       }}
                       size="sm"

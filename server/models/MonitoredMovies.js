@@ -86,6 +86,18 @@ const MonitoredMovies = sequelize.define(
       type: DataTypes.DATE,
       allowNull: true,
     },
+    fileQuality: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    grabAttemptedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    lastGrabError: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
   {
     tableName: "monitored_movies",

@@ -6,6 +6,7 @@
 const path = require('path');
 const CardigannLoader = require('./loader');
 const CardigannScraper = require('./scraper');
+const { extraDefinitions, extraDefinition, createExtraScraper } = require('../indexers/native');
 const CardigannTemplateEngine = require('./templateEngine');
 const CardigannFilterEngine = require('./filterEngine');
 const CardigannParser = require('./parser');
@@ -34,18 +35,17 @@ class CardigannEngine {
    * Get or create a scraper for an indexer
    */
   getScraper(indexerId) {
-    if (this.scrapers.has(indexerId)) {
-      return this.scrapers.get(indexerId);
-    }
+    const extra = createExtraScraper(indexerId);
+    if (extra) return extra;
 
     const definition = this.loader.getDefinition(indexerId);
     if (!definition) {
       throw new Error(`Indexer definition not found: ${indexerId}`);
     }
 
-    const scraper = new CardigannScraper(definition);
-    this.scrapers.set(indexerId, scraper);
-    return scraper;
+    // A scraper holds cookies and settings for one configured indexer.
+    // Always create a new one so instances do not share a session.
+    return new CardigannScraper(definition);
   }
 
   /**
@@ -78,14 +78,14 @@ class CardigannEngine {
    * Get all available indexers
    */
   getAllIndexers() {
-    return this.loader.getAllDefinitions();
+    return [...this.loader.getAllDefinitions(), ...extraDefinitions()];
   }
 
   /**
    * Get indexer by ID
    */
   getIndexer(id) {
-    return this.loader.getDefinition(id);
+    return this.loader.getDefinition(id) || extraDefinition(id);
   }
 
   /**
@@ -99,8 +99,9 @@ class CardigannEngine {
    * Reload definitions (for development)
    */
   reload() {
-    this.loader.reload();
+    const loaded = this.loader.reload();
     this.scrapers.clear();
+    return loaded || this.loader.lastLoad;
   }
 }
 

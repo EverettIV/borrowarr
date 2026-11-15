@@ -10,6 +10,80 @@ const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const Settings = require('../models/Settings');
+const { resolveLibraryDestination, transferFile } = require('./mediaOrganizer');
+const { recordActivitySafe, ActivityCategory } = require('./activityLogService');
+
+async function logWatchMove(userId, { action, status = 'success', summary, details }) {
+  if (!userId || !action || !summary) return;
+  await recordActivitySafe(userId, {
+    category: ActivityCategory.WATCH_AND_MOVE,
+    action,
+    status,
+    summary,
+    details,
+  });
+}
+
+/**
+ * Resolve final library path (organized naming when enabled).
+ * @param {'approve'|'auto'} mode - manual approve queue vs automatic move
+ */
+function isNamingEnabledForType(settings, type, mode) {
+  if (type === 'movie') {
+    const perType =
+      mode === 'auto'
+        ? settings?.movieApplyNamingOnAutomaticMove
+        : settings?.movieApplyNamingOnWatcherApprove;
+    if (perType !== undefined && perType !== null) return Boolean(perType);
+  } else {
+    const perType =
+      mode === 'auto'
+        ? settings?.seriesApplyNamingOnAutomaticMove
+        : settings?.seriesApplyNamingOnWatcherApprove;
+    if (perType !== undefined && perType !== null) return Boolean(perType);
+  }
+  return mode === 'auto'
+    ? Boolean(settings?.applyNamingOnAutomaticMove)
+    : settings?.applyNamingOnWatcherApprove !== false;
+}
+
+async function watcherDestinationPath(userId, sourcePath, type, mediaRootDir, mode) {
+  const settings = await Settings.findOne({ where: { userId } });
+  const applyNaming = isNamingEnabledForType(settings, type, mode);
+
+  if (applyNaming) {
+    try {
+      const resolved = await resolveLibraryDestination(userId, sourcePath, type);
+      if (resolved?.destPath) {
+        return resolved;
+      }
+    } catch (err) {
+      console.warn(`[DownloadWatcher] Naming resolution failed for ${path.basename(sourcePath)}:`, err.message);
+    }
+  }
+
+  return {
+    destPath: path.join(mediaRootDir, path.basename(sourcePath)),
+    organized: false,
+    reason: 'naming_disabled',
+  };
+}
+
+async function moveFileToResolvedDest(filePath, destPath) {
+  const destDir = path.dirname(destPath);
+  await fs.mkdir(destDir, { recursive: true });
+
+  const fileExists = await fs.access(destPath).then(() => true).catch(() => false);
+  if (fileExists) {
+    try {
+      await fs.unlink(destPath);
+    } catch (error) {
+      console.warn(`[DownloadWatcher] Could not remove existing destination file: ${error.message}`);
+    }
+  }
+
+  await transferFile(filePath, destPath);
+}
 
 // Video file extensions to look for
 const VIDEO_EXTENSIONS = new Set([
@@ -110,10 +184,11 @@ class DownloadWatcher {
     if (!this.isRunning) return;
 
     const stats = userStats.get(this.userId);
+    const filesBefore = stats.filesProcessed;
+    const pendingBefore = userPendingFiles.get(this.userId)?.length || 0;
     stats.lastRun = new Date();
 
-    // Scan movie downloads
-    if (this.settings.movieDownloadDirectory && this.settings.movieWatcherDestination) {
+    if (isMovieWatcherActive(this.settings)) {
       await this.scanDirectory(
         this.settings.movieDownloadDirectory,
         this.settings.movieWatcherDestination,
@@ -121,13 +196,35 @@ class DownloadWatcher {
       );
     }
 
-    // Scan series downloads
-    if (this.settings.seriesDownloadDirectory && this.settings.seriesWatcherDestination) {
+    if (isSeriesWatcherActive(this.settings)) {
       await this.scanDirectory(
         this.settings.seriesDownloadDirectory,
         this.settings.seriesWatcherDestination,
         'series'
       );
+    }
+
+    const moved = stats.filesProcessed - filesBefore;
+    const pendingAdded =
+      (userPendingFiles.get(this.userId)?.length || 0) - pendingBefore;
+    if (moved > 0 || pendingAdded > 0) {
+      const summary =
+        moved > 0 && pendingAdded > 0
+          ? `Auto poll: moved ${moved} file(s), queued ${pendingAdded} for approval`
+          : moved > 0
+            ? `Auto poll: moved ${moved} file(s) to library`
+            : `Auto poll: queued ${pendingAdded} file(s) for approval`;
+      await logWatchMove(this.userId, {
+        action: 'automatic_poll',
+        status: 'success',
+        summary,
+        details: {
+          trigger: 'automatic',
+          filesMoved: moved,
+          pendingAdded,
+          intervalSeconds: this.settings.watcherInterval || 30,
+        },
+      });
     }
   }
 
@@ -219,17 +316,23 @@ class DownloadWatcher {
               stats.seriesProcessed++;
             }
           } else {
-            // Manual approval mode - add to pending queue
             const fileId = crypto.randomBytes(8).toString('hex');
+            const resolved = await watcherDestinationPath(
+              this.userId,
+              filePath,
+              type,
+              destDir,
+              'approve',
+            );
             pendingFiles.push({
               id: fileId,
               filename: fileName,
               sourcePath: filePath,
-              destinationPath: path.join(destDir, fileName),
+              destinationPath: resolved.destPath,
               type: type,
               size: fileStats.size,
               detectedAt: new Date().toISOString(),
-              // No folderPath - this is a direct file
+              organizedNaming: Boolean(resolved.organized),
             });
             console.log(`[DownloadWatcher] Added to pending: ${fileName}`);
           }
@@ -295,8 +398,17 @@ class DownloadWatcher {
               
               // Calculate relative path from folder root to preserve structure
               const relativePath = path.relative(folderPath, filePath);
-              const destinationPath = path.join(destDir, folderName, relativePath);
-              
+              const resolved = await watcherDestinationPath(
+                this.userId,
+                filePath,
+                type,
+                path.join(destDir, folderName),
+                'approve',
+              );
+              const destinationPath = resolved.organized
+                ? resolved.destPath
+                : path.join(destDir, folderName, relativePath);
+
               pendingFiles.push({
                 id: fileId,
                 filename: fileName,
@@ -305,7 +417,8 @@ class DownloadWatcher {
                 type: type,
                 size: fileStats.size,
                 detectedAt: new Date().toISOString(),
-                folderPath: folderPath, // Track which folder this belongs to
+                folderPath: folderPath,
+                organizedNaming: Boolean(resolved.organized),
               });
             }
             console.log(`[DownloadWatcher] Added folder to pending: ${folderName} (${files.length} files)`);
@@ -379,54 +492,13 @@ class DownloadWatcher {
   async moveFile(filePath, destDir, type) {
     const fileName = path.basename(filePath);
     const stats = userStats.get(this.userId);
-    
-    console.log(`[DownloadWatcher] Moving ${type}: ${fileName}`);
-    
-    // Ensure destination directory exists (works with network shares)
-    try {
-      await fs.mkdir(destDir, { recursive: true });
-    } catch (error) {
-      // If mkdir fails, check if directory already exists
-      try {
-        await fs.access(destDir);
-      } catch {
-        throw new Error(`Cannot create destination directory: ${destDir} - ${error.message}`);
-      }
-    }
-    
-    // Build destination path - handle Windows UNC paths
-    const isWindowsUNC = destDir.startsWith('\\\\') || destDir.startsWith('//');
-    const destPath = isWindowsUNC 
-      ? path.win32.join(destDir, fileName)
-      : path.join(destDir, fileName);
-    
-    // Check if file already exists at destination - if so, we'll overwrite it
-    const fileExists = await fs.access(destPath).then(() => true).catch(() => false);
-    if (fileExists) {
-      console.log(`[DownloadWatcher] File already exists at destination, will overwrite: ${fileName}`);
-      // Remove existing file before moving
-      try {
-        await fs.unlink(destPath);
-      } catch (error) {
-        console.warn(`[DownloadWatcher] Could not remove existing file, will try to overwrite anyway: ${error.message}`);
-      }
-    }
-    
-    // Move the file (fs.rename works with network shares)
-    try {
-      await fs.rename(filePath, destPath);
-      console.log(`[DownloadWatcher] Moved: ${fileName} → ${destDir}`);
-    } catch (error) {
-      // If rename fails (e.g., cross-device on network shares), try copy + delete
-      if (error.code === 'EXDEV' || error.message.includes('cross-device')) {
-        console.log(`[DownloadWatcher] Cross-device move detected, using copy+delete for: ${fileName}`);
-        await fs.copyFile(filePath, destPath);
-        await fs.unlink(filePath);
-        console.log(`[DownloadWatcher] Copied and removed: ${fileName} → ${destDir}`);
-      } else {
-        throw error;
-      }
-    }
+
+    const resolved = await watcherDestinationPath(this.userId, filePath, type, destDir, 'auto');
+    const destPath = resolved.destPath;
+
+    console.log(`[DownloadWatcher] Moving ${type}: ${fileName} → ${destPath}`);
+
+    await moveFileToResolvedDest(filePath, destPath);
     
     // Track in recent files (keep last 20)
     if (!stats.recentFiles) {
@@ -588,16 +660,17 @@ async function initializeAllWatchers() {
       },
     });
     
+    let started = 0;
     for (const setting of settings) {
-      const s = setting.toJSON();
+      const s = resolveWatcherSettings(setting.toJSON());
       // Only start if at least one pair of directories is configured
-      if ((s.movieDownloadDirectory && s.movieWatcherDestination) || 
-          (s.seriesDownloadDirectory && s.seriesWatcherDestination)) {
+      if (isMovieWatcherActive(s) || isSeriesWatcherActive(s)) {
         startWatcher(setting.userId, s);
+        started += 1;
       }
     }
-    
-    console.log(`[DownloadWatcher] Initialized ${settings.length} watchers`);
+
+    console.log(`[DownloadWatcher] Initialized ${started} watcher(s) (${settings.length} user(s) with watcher enabled)`);
   } catch (error) {
     console.error('[DownloadWatcher] Error initializing watchers:', error);
   }
@@ -632,14 +705,15 @@ function stopWatcher(userId) {
  * Update a user's watcher settings
  */
 function updateWatcher(userId, settings) {
-  const hasMoviePair = settings.movieDownloadDirectory && settings.movieWatcherDestination;
-  const hasSeriesPair = settings.seriesDownloadDirectory && settings.seriesWatcherDestination;
-  
-  if (settings.downloadWatcherEnabled && (hasMoviePair || hasSeriesPair)) {
+  const s = resolveWatcherSettings(settings);
+  const hasActive =
+    isMovieWatcherActive(s) || isSeriesWatcherActive(s);
+
+  if (settings.downloadWatcherEnabled && hasActive) {
     if (userWatchers.has(userId)) {
-      userWatchers.get(userId).updateSettings(settings);
+      userWatchers.get(userId).updateSettings(s);
     } else {
-      startWatcher(userId, settings);
+      startWatcher(userId, s);
     }
   } else {
     stopWatcher(userId);
@@ -730,16 +804,41 @@ async function approveFile(userId, fileId) {
       }
       
       console.log(`[DownloadWatcher] Approved and moved folder: ${folderName} (${folderFiles.length} files)`);
+      await logWatchMove(userId, {
+        action: 'approve_move',
+        status: 'success',
+        summary: `Approved folder: ${folderName} (${folderFiles.length} files)`,
+        details: {
+          trigger: 'manual_approve',
+          type: file.type,
+          folderPath: file.folderPath,
+          fileCount: folderFiles.length,
+        },
+      });
       return { success: true, message: `Folder moved successfully (${folderFiles.length} files)` };
     } else {
-      // Individual file (directly in download directory) - move just the file
-      const destDir = path.dirname(file.destinationPath);
-      await fs.mkdir(destDir, { recursive: true });
-      
-      // Move the file
-      await fs.rename(file.sourcePath, file.destinationPath);
-      console.log(`[DownloadWatcher] Approved and moved: ${file.filename}`);
-      
+      const resolved = await watcherDestinationPath(
+        userId,
+        file.sourcePath,
+        file.type,
+        path.dirname(file.destinationPath),
+        'approve',
+      );
+      const destPath = resolved.destPath || file.destinationPath;
+      await moveFileToResolvedDest(file.sourcePath, destPath);
+      console.log(`[DownloadWatcher] Approved and moved: ${file.filename} → ${destPath}`);
+      await logWatchMove(userId, {
+        action: 'approve_move',
+        status: 'success',
+        summary: `Approved: ${file.filename}`,
+        details: {
+          trigger: 'manual_approve',
+          type: file.type,
+          sourcePath: file.sourcePath,
+          destinationPath: destPath,
+        },
+      });
+
       // Update stats
       stats.filesProcessed++;
       if (file.type === 'movie') {
@@ -770,7 +869,7 @@ async function approveFile(userId, fileId) {
 /**
  * Reject a pending file (remove from queue without moving)
  */
-function rejectFile(userId, fileId) {
+async function rejectFile(userId, fileId) {
   const pendingFiles = userPendingFiles.get(userId);
   if (!pendingFiles) {
     throw new Error('No pending files');
@@ -793,19 +892,282 @@ function rejectFile(userId, fileId) {
   // Remove from pending
   pendingFiles.splice(fileIndex, 1);
   console.log(`[DownloadWatcher] Rejected/ignored: ${file.filename}`);
-  
+  await logWatchMove(userId, {
+    action: 'reject_pending',
+    status: 'info',
+    summary: `Ignored: ${file.filename}`,
+    details: {
+      trigger: 'manual_reject',
+      type: file.type,
+      sourcePath: file.sourcePath,
+    },
+  });
+
   return { success: true, message: 'File ignored' };
 }
 
 /**
  * Manually trigger a scan for a user
  */
-async function triggerScan(userId) {
+function mergeWatcherSettings(dbSettings, overrides = {}) {
+  const base = dbSettings ? dbSettings.toJSON() : {};
+  const merged = { ...base, ...overrides };
+  for (const key of Object.keys(overrides)) {
+    if (overrides[key] === undefined) continue;
+    merged[key] = overrides[key];
+  }
+  return merged;
+}
+
+/**
+ * Apply saved vs custom watcher path selections
+ */
+function resolveWatcherSettings(settings) {
+  const s = { ...settings };
+
+  if (s.movieWatcherDownloadMode === 'custom' && s.movieWatcherCustomDownloadDirectory) {
+    s.movieDownloadDirectory = s.movieWatcherCustomDownloadDirectory;
+  }
+  if (s.movieWatcherMediaMode === 'custom' && s.movieWatcherCustomMediaDirectory) {
+    s.movieWatcherDestination = s.movieWatcherCustomMediaDirectory;
+  }
+  if (s.seriesWatcherDownloadMode === 'custom' && s.seriesWatcherCustomDownloadDirectory) {
+    s.seriesDownloadDirectory = s.seriesWatcherCustomDownloadDirectory;
+  }
+  if (s.seriesWatcherMediaMode === 'custom' && s.seriesWatcherCustomMediaDirectory) {
+    s.seriesWatcherDestination = s.seriesWatcherCustomMediaDirectory;
+  }
+
+  return s;
+}
+
+function isMovieWatcherActive(s) {
+  if (s.movieWatcherEnabled === false) return false;
+  return Boolean(s.movieDownloadDirectory && s.movieWatcherDestination);
+}
+
+function isSeriesWatcherActive(s) {
+  if (s.seriesWatcherEnabled === false) return false;
+  return Boolean(s.seriesDownloadDirectory && s.seriesWatcherDestination);
+}
+
+async function isFileStableQuick(filePath, waitMs = 400) {
+  try {
+    const stat1 = await fs.stat(filePath);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const stat2 = await fs.stat(filePath);
+    return stat1.size === stat2.size && stat1.mtimeMs === stat2.mtimeMs;
+  } catch {
+    return false;
+  }
+}
+
+async function previewDirectoryPair(userId, sourceDir, destDir, type, autoApprove, pendingSourcePaths, ready, skipped) {
+  try {
+    await fs.access(sourceDir);
+  } catch (err) {
+    skipped.push({
+      type,
+      name: sourceDir,
+      reason: 'source_not_accessible',
+      detail: err.message,
+    });
+    return;
+  }
+
+  const { folders: rootFolders, files: rootFiles } = await getRootFoldersDirect(sourceDir);
+
+  for (const filePath of rootFiles) {
+    if (pendingSourcePaths.has(filePath)) {
+      skipped.push({
+        type,
+        kind: 'file',
+        name: path.basename(filePath),
+        sourcePath: filePath,
+        reason: 'already_pending',
+      });
+      continue;
+    }
+
+    const stable = await isFileStableQuick(filePath);
+    if (!stable) {
+      skipped.push({
+        type,
+        kind: 'file',
+        name: path.basename(filePath),
+        sourcePath: filePath,
+        reason: 'still_downloading',
+      });
+      continue;
+    }
+
+    const fileName = path.basename(filePath);
+    const fileStats = await fs.stat(filePath);
+    const namingMode = autoApprove ? 'auto' : 'approve';
+    const resolved = await watcherDestinationPath(userId, filePath, type, destDir, namingMode);
+    ready.push({
+      type,
+      kind: 'file',
+      name: fileName,
+      sourcePath: filePath,
+      destinationPath: resolved.destPath,
+      size: fileStats.size,
+      organizedNaming: Boolean(resolved.organized),
+      namingReason: resolved.reason,
+      action: autoApprove ? 'move' : 'queue_for_approval',
+    });
+  }
+
+  for (const folderPath of rootFolders) {
+    const folderName = path.basename(folderPath);
+    const hasVideos = await folderContainsVideosDirect(folderPath);
+    if (!hasVideos) {
+      skipped.push({
+        type,
+        kind: 'folder',
+        name: folderName,
+        sourcePath: folderPath,
+        reason: 'no_videos',
+      });
+      continue;
+    }
+
+    const files = await getVideoFilesRecursive(folderPath);
+    let allStable = true;
+    for (const filePath of files) {
+      const stable = await isFileStableQuick(filePath);
+      if (!stable) {
+        allStable = false;
+        break;
+      }
+    }
+
+    if (!allStable) {
+      skipped.push({
+        type,
+        kind: 'folder',
+        name: folderName,
+        sourcePath: folderPath,
+        reason: 'still_downloading',
+        fileCount: files.length,
+      });
+      continue;
+    }
+
+    if (autoApprove) {
+      ready.push({
+        type,
+        kind: 'folder',
+        name: folderName,
+        sourcePath: folderPath,
+        destinationPath: path.join(destDir, folderName),
+        fileCount: files.length,
+        action: 'move_folder',
+      });
+    } else {
+      for (const filePath of files) {
+        if (pendingSourcePaths.has(filePath)) continue;
+        const fileName = path.basename(filePath);
+        const relativePath = path.relative(folderPath, filePath);
+        const fileStats = await fs.stat(filePath);
+        const resolved = await watcherDestinationPath(
+          userId,
+          filePath,
+          type,
+          path.join(destDir, folderName),
+          'approve',
+        );
+        const destinationPath = resolved.organized
+          ? resolved.destPath
+          : path.join(destDir, folderName, relativePath);
+        ready.push({
+          type,
+          kind: 'file',
+          name: fileName,
+          sourcePath: filePath,
+          destinationPath,
+          size: fileStats.size,
+          folderName,
+          organizedNaming: Boolean(resolved.organized),
+          namingReason: resolved.reason,
+          action: 'queue_for_approval',
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Dry-run: list what would be moved without changing anything
+ */
+async function previewMoves(userId, overrides = {}) {
+  const settings = await Settings.findOne({ where: { userId } });
+  const s = resolveWatcherSettings(mergeWatcherSettings(settings, overrides));
+
+  const hasMovie = isMovieWatcherActive(s);
+  const hasSeries = isSeriesWatcherActive(s);
+
+  if (!hasMovie && !hasSeries) {
+    return {
+      success: false,
+      message: 'Enable and configure at least one movie or TV watcher pair',
+      ready: [],
+      skipped: [],
+      autoApprove: !!s.watcherAutoApprove,
+    };
+  }
+
+  const pendingFiles = userPendingFiles.get(userId) || [];
+  const pendingSourcePaths = new Set(pendingFiles.map((pf) => pf.sourcePath));
+  const autoApprove = !!s.watcherAutoApprove;
+
+  const ready = [];
+  const skipped = [];
+
+  if (hasMovie) {
+    await previewDirectoryPair(
+      userId,
+      s.movieDownloadDirectory,
+      s.movieWatcherDestination,
+      'movie',
+      autoApprove,
+      pendingSourcePaths,
+      ready,
+      skipped,
+    );
+  }
+
+  if (hasSeries) {
+    await previewDirectoryPair(
+      userId,
+      s.seriesDownloadDirectory,
+      s.seriesWatcherDestination,
+      'series',
+      autoApprove,
+      pendingSourcePaths,
+      ready,
+      skipped,
+    );
+  }
+
+  return {
+    success: true,
+    message: autoApprove
+      ? `Would move ${ready.length} item(s)`
+      : `Would queue ${ready.length} file(s) for approval`,
+    autoApprove,
+    ready,
+    skipped,
+  };
+}
+
+async function triggerScan(userId, overrides = {}) {
   console.log(`[DownloadWatcher] Manual scan triggered for user ${userId}`);
   
   // First try existing running watcher
   const watcher = userWatchers.get(userId);
-  if (watcher && watcher.isRunning) {
+  const hasOverrides = overrides && Object.keys(overrides).length > 0;
+  if (watcher && watcher.isRunning && !hasOverrides) {
     console.log(`[DownloadWatcher] Using existing watcher for user ${userId}`);
     await watcher.scan();
     return { success: true, message: 'Scan completed successfully' };
@@ -815,19 +1177,22 @@ async function triggerScan(userId) {
   try {
     const settings = await Settings.findOne({ where: { userId } });
     
-    if (!settings) {
+    if (!settings && !hasOverrides) {
       console.log(`[DownloadWatcher] No settings found for user ${userId}`);
       return { success: false, message: 'No settings configured' };
     }
     
-    const s = settings.toJSON();
+    const s = resolveWatcherSettings(mergeWatcherSettings(settings, overrides));
     console.log(`[DownloadWatcher] Settings loaded for scan`);
     
-    const hasMoviePair = s.movieDownloadDirectory && s.movieWatcherDestination;
-    const hasSeriesPair = s.seriesDownloadDirectory && s.seriesWatcherDestination;
-    
-    if (!hasMoviePair && !hasSeriesPair) {
-      return { success: false, message: 'No download/media folder pairs configured' };
+    const hasMovie = isMovieWatcherActive(s);
+    const hasSeries = isSeriesWatcherActive(s);
+
+    if (!hasMovie && !hasSeries) {
+      return {
+        success: false,
+        message: 'No enabled download/media folder pairs configured',
+      };
     }
     
     // Initialize stats if needed
@@ -856,13 +1221,12 @@ async function triggerScan(userId) {
     // This is simpler and more reliable for one-time scans
     
     // Scan movies
-    if (hasMoviePair) {
+    if (hasMovie) {
       console.log(`[DownloadWatcher] Scanning movies: ${s.movieDownloadDirectory} -> ${s.movieWatcherDestination}`);
       await scanDirectoryDirect(userId, s.movieDownloadDirectory, s.movieWatcherDestination, 'movie', s.watcherAutoApprove);
     }
-    
-    // Scan series
-    if (hasSeriesPair) {
+
+    if (hasSeries) {
       console.log(`[DownloadWatcher] Scanning series: ${s.seriesDownloadDirectory} -> ${s.seriesWatcherDestination}`);
       await scanDirectoryDirect(userId, s.seriesDownloadDirectory, s.seriesWatcherDestination, 'series', s.watcherAutoApprove);
     }
@@ -880,10 +1244,28 @@ async function triggerScan(userId) {
     }
     
     console.log(`[DownloadWatcher] ${message}`);
+    await logWatchMove(userId, {
+      action: 'manual_scan',
+      status: 'success',
+      summary: message.trim(),
+      details: {
+        trigger: 'manual',
+        autoApprove: s.watcherAutoApprove,
+        filesMoved: newFilesProcessed,
+        pendingAdded: newPendingCount,
+      },
+    });
     return { success: true, message };
   } catch (error) {
     console.error('[DownloadWatcher] Error during manual scan:', error);
-    return { success: false, message: error.message || 'Scan failed' };
+    const errMsg = error.message || 'Scan failed';
+    await logWatchMove(userId, {
+      action: 'manual_scan_failed',
+      status: 'failure',
+      summary: errMsg,
+      details: { trigger: 'manual', error: errMsg },
+    });
+    return { success: false, message: errMsg };
   }
 }
 
@@ -1080,7 +1462,7 @@ async function scanDirectoryDirect(userId, sourceDir, destDir, type, autoApprove
         
         if (autoApprove) {
           // Auto-move mode - move individual file
-          await moveFileDirect(filePath, destDir, type, stats);
+          await moveFileDirect(userId, filePath, destDir, type, stats);
           stats.filesProcessed++;
           if (type === 'movie') {
             stats.moviesProcessed++;
@@ -1088,17 +1470,17 @@ async function scanDirectoryDirect(userId, sourceDir, destDir, type, autoApprove
             stats.seriesProcessed++;
           }
         } else {
-          // Manual approval mode - add to pending queue
           const fileId = crypto.randomBytes(8).toString('hex');
+          const resolved = await watcherDestinationPath(userId, filePath, type, destDir, 'approve');
           pendingFiles.push({
             id: fileId,
             filename: fileName,
             sourcePath: filePath,
-            destinationPath: path.join(destDir, fileName),
+            destinationPath: resolved.destPath,
             type: type,
             size: fileStats.size,
             detectedAt: new Date().toISOString(),
-            // No folderPath - this is a direct file
+            organizedNaming: Boolean(resolved.organized),
           });
           console.log(`[DownloadWatcher] Added to pending: ${fileName}`);
         }
@@ -1152,8 +1534,17 @@ async function scanDirectoryDirect(userId, sourceDir, destDir, type, autoApprove
             
             // Calculate relative path from folder root to preserve structure
             const relativePath = path.relative(folderPath, filePath);
-            const destinationPath = path.join(destDir, folderName, relativePath);
-            
+            const resolved = await watcherDestinationPath(
+              userId,
+              filePath,
+              type,
+              path.join(destDir, folderName),
+              'approve',
+            );
+            const destinationPath = resolved.organized
+              ? resolved.destPath
+              : path.join(destDir, folderName, relativePath);
+
             pendingFiles.push({
               id: fileId,
               filename: fileName,
@@ -1162,7 +1553,8 @@ async function scanDirectoryDirect(userId, sourceDir, destDir, type, autoApprove
               type: type,
               size: fileStats.size,
               detectedAt: new Date().toISOString(),
-              folderPath: folderPath, // Track which folder this belongs to
+              folderPath: folderPath,
+              organizedNaming: Boolean(resolved.organized),
             });
           }
           console.log(`[DownloadWatcher] Added folder to pending: ${folderName} (${files.length} files)`);
@@ -1214,65 +1606,22 @@ async function getVideoFilesRecursive(dir, files = []) {
  * Move a file to the destination directory (standalone function)
  * Supports network shares (Windows UNC paths, macOS/Unix mounts)
  */
-async function moveFileDirect(filePath, destDir, type, stats) {
+async function moveFileDirect(userId, filePath, destDir, type, stats) {
   const fileName = path.basename(filePath);
-  
-  console.log(`[DownloadWatcher] Moving ${type}: ${fileName} -> ${destDir}`);
-  
-  // Ensure destination directory exists (works with network shares)
-  try {
-    await fs.mkdir(destDir, { recursive: true });
-  } catch (error) {
-    // If mkdir fails, check if directory already exists
-    try {
-      await fs.access(destDir);
-    } catch {
-      throw new Error(`Cannot create destination directory: ${destDir} - ${error.message}`);
-    }
-  }
-  
-  // Build destination path - handle Windows UNC paths
-  const isWindowsUNC = destDir.startsWith('\\\\') || destDir.startsWith('//');
-  const destPath = isWindowsUNC 
-    ? path.win32.join(destDir, fileName)
-    : path.join(destDir, fileName);
-  
-  // Check if file already exists at destination - if so, we'll overwrite it
-  const fileExists = await fs.access(destPath).then(() => true).catch(() => false);
-  if (fileExists) {
-    console.log(`[DownloadWatcher] File already exists at destination, will overwrite: ${fileName}`);
-    // Remove existing file before moving
-    try {
-      await fs.unlink(destPath);
-    } catch (error) {
-      console.warn(`[DownloadWatcher] Could not remove existing file, will try to overwrite anyway: ${error.message}`);
-    }
-  }
-  
-  // Move the file (fs.rename works with network shares)
-  try {
-    await fs.rename(filePath, destPath);
-    console.log(`[DownloadWatcher] Moved: ${fileName} → ${destDir}`);
-  } catch (error) {
-    // If rename fails (e.g., cross-device on network shares), try copy + delete
-    if (error.code === 'EXDEV' || error.message.includes('cross-device')) {
-      console.log(`[DownloadWatcher] Cross-device move detected, using copy+delete for: ${fileName}`);
-      await fs.copyFile(filePath, destPath);
-      await fs.unlink(filePath);
-      console.log(`[DownloadWatcher] Copied and removed: ${fileName} → ${destDir}`);
-    } else {
-      throw error;
-    }
-  }
-  
-  // Track in recent files (keep last 20)
+  const resolved = await watcherDestinationPath(userId, filePath, type, destDir, 'auto');
+  const destPath = resolved.destPath;
+
+  console.log(`[DownloadWatcher] Moving ${type}: ${fileName} → ${destPath}`);
+  await moveFileToResolvedDest(filePath, destPath);
+  console.log(`[DownloadWatcher] Moved: ${fileName} → ${destPath}`);
+
   if (!stats.recentFiles) {
     stats.recentFiles = [];
   }
   stats.recentFiles.unshift({
     name: fileName,
     type: type,
-    destination: destDir,
+    destination: destPath,
     timestamp: new Date().toISOString(),
   });
   if (stats.recentFiles.length > 20) {
@@ -1290,4 +1639,5 @@ module.exports = {
   approveFile,
   rejectFile,
   triggerScan,
+  previewMoves,
 };

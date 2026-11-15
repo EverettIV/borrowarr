@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { PageContent, PageHeader } from "@/components/page-header";
+import { useAuth } from "@/context/AuthContext";
 import "../../../styles/Indexers.scss";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
@@ -63,25 +64,40 @@ interface Indexer {
   language?: string;
   description?: string;
   indexerType?: string;
+  cardigannId?: string;
+  cardigannSettings?: Record<string, string | boolean>;
+  settingsSchema?: IndexerSetting[];
   status?: "enabled" | "enabled_redirected" | "disabled" | "error";
   verified?: boolean;
   verifiedAt?: string;
   createdAt?: string;
 }
 
+interface IndexerSetting {
+  name: string;
+  type: string;
+  label: string;
+  default?: string | boolean;
+  options?: Record<string, string> | null;
+}
+
 interface AvailableIndexer {
+  id: string;
   name: string;
   protocol: "torrent" | "nzb";
   language: string;
   description: string;
-  privacy: "Private" | "Public";
+  privacy: "Private" | "Public" | "Semi-Private";
   categories: string[];
   availableBaseUrls?: string[];
+  settings?: IndexerSetting[];
   verified?: boolean;
   verifiedAt?: string;
 }
 
 const Indexers = () => {
+  const { user } = useAuth();
+  const isAdmin = Boolean(user?.permissions?.admin);
   const [indexers, setIndexers] = useState<Indexer[]>([]);
   const [loading, setLoading] = useState(true);
   const [availableIndexers, setAvailableIndexers] = useState<
@@ -178,8 +194,12 @@ const Indexers = () => {
 
   const handleAddIndexer = (indexer: AvailableIndexer) => {
     setSelectedIndexer(indexer);
-    // For NZB indexers, set indexerType to "Newznab", otherwise "Cardigann"
     const indexerType = indexer.protocol === "nzb" ? "Newznab" : "Cardigann";
+    const cardigannSettings: Record<string, string | boolean> = {};
+    (indexer.settings || []).forEach((setting) => {
+      if (String(setting.type).startsWith("info")) return;
+      if (setting.default !== undefined) cardigannSettings[setting.name] = setting.default;
+    });
     setFormData({
       name: indexer.name,
       protocol: indexer.protocol,
@@ -192,6 +212,9 @@ const Indexers = () => {
       description: indexer.description,
       categories: indexer.categories,
       indexerType: indexerType,
+      cardigannId: indexer.id,
+      cardigannSettings,
+      settingsSchema: indexer.settings || [],
       status: "enabled",
       baseUrl: indexer.availableBaseUrls?.[0] || "",
       availableBaseUrls: indexer.availableBaseUrls || [],
@@ -207,8 +230,20 @@ const Indexers = () => {
       const response = await axios.get(
         `${API_BASE_URL}/api/Indexers/read/${indexer.id}`,
       );
-      setEditingIndexer(response.data);
-      setFormData(response.data);
+      const data = response.data;
+      if (data.cardigannId) {
+        try {
+          const definition = await axios.get(
+            `${API_BASE_URL}/api/Indexers/definition/${data.cardigannId}`,
+          );
+          data.settingsSchema = definition.data.settings || [];
+          data.availableBaseUrls = definition.data.availableBaseUrls || data.availableBaseUrls;
+        } catch (definitionError) {
+          console.error("Error fetching indexer definition:", definitionError);
+        }
+      }
+      setEditingIndexer(data);
+      setFormData(data);
       setTestError(null);
       setTestSuccess(false);
       onConfigModalOpen();
@@ -374,6 +409,7 @@ const Indexers = () => {
     <div className="Indexers min-h-screen bg-background">
       <PageHeader
         actions={
+          isAdmin ? (
           <>
             <Button
               className="btn-glow flex-1 xs:flex-none"
@@ -387,21 +423,6 @@ const Indexers = () => {
             </Button>
             <Button
               color="secondary"
-              isLoading={syncing}
-              onPress={handleSync}
-              size="sm"
-              startContent={
-                <RefreshCw
-                  className={syncing ? "animate-spin" : ""}
-                  size={16}
-                />
-              }
-              variant="flat"
-            >
-              <span className="hidden sm:inline">Sync</span>
-            </Button>
-            <Button
-              color="secondary"
               isLoading={testing}
               onPress={handleTestAll}
               size="sm"
@@ -411,6 +432,7 @@ const Indexers = () => {
               <span className="hidden sm:inline">Test All</span>
             </Button>
           </>
+          ) : undefined
         }
         description="Manage your torrent and NZB indexers"
         icon={<Shield className="h-6 w-6" />}
@@ -438,6 +460,7 @@ const Indexers = () => {
                     Get started by adding your first indexer to begin
                     discovering content.
                   </p>
+                  {isAdmin ? (
                   <Button
                     className="btn-glow"
                     color="secondary"
@@ -447,6 +470,11 @@ const Indexers = () => {
                   >
                     Add Your First Indexer
                   </Button>
+                  ) : (
+                    <p className="text-sm text-foreground/60">
+                      An admin has to add indexers before search works on this instance.
+                    </p>
+                  )}
                 </div>
               </div>
             </CardBody>
@@ -456,9 +484,11 @@ const Indexers = () => {
             {indexers.map((indexer) => (
               <Card
                 className="card-interactive group"
-                isPressable
+                isPressable={isAdmin}
                 key={indexer.id}
-                onPress={() => handleEditIndexer(indexer)}
+                onPress={() => {
+                  if (isAdmin) handleEditIndexer(indexer);
+                }}
               >
                 <CardHeader className="flex-col items-start pt-4 sm:pt-5 px-4 sm:px-5 pb-2 gap-2">
                   <div className="flex items-start gap-2 sm:gap-3 w-full">
@@ -635,8 +665,10 @@ const Indexers = () => {
                     >
                       <Switch
                         color="secondary"
+                        isDisabled={!isAdmin}
                         isSelected={indexer.enabled}
                         onValueChange={async (enabled) => {
+                          if (!isAdmin) return;
                           try {
                             await axios.put(
                               `${API_BASE_URL}/api/Indexers/update/${indexer.id}`,
@@ -767,6 +799,7 @@ const Indexers = () => {
                     >
                       <SelectItem key="Public">Public</SelectItem>
                       <SelectItem key="Private">Private</SelectItem>
+                      <SelectItem key="Semi-Private">Semi-Private</SelectItem>
                     </Select>
                     <div className="flex flex-col justify-end">
                       <label className="text-xs sm:text-sm font-medium text-foreground mb-2">
@@ -1034,82 +1067,106 @@ const Indexers = () => {
                 />
               </div>
 
-              {/* NZB-specific fields (API Key, VIP Expiration) */}
-              {formData.protocol === "nzb" && (
-                <>
-                  <Input
-                    classNames={{
-                      inputWrapper:
-                        "bg-content2 border border-secondary/20 hover:border-secondary/40",
-                      label: "text-xs sm:text-sm",
-                      description: "text-[10px] sm:text-xs text-foreground/50",
-                    }}
-                    description="Site API Key"
-                    label="API Key"
-                    onChange={(e) =>
-                      setFormData({ ...formData, apiKey: e.target.value })
-                    }
-                    placeholder="Enter your API key"
-                    size="sm"
-                    type="password"
-                    value={formData.apiKey || ""}
-                  />
-                  <Input
-                    classNames={{
-                      inputWrapper:
-                        "bg-content2 border border-secondary/20 hover:border-secondary/40",
-                      label: "text-xs sm:text-sm",
-                      description: "text-[10px] sm:text-xs text-foreground/50",
-                    }}
-                    description="Enter date (yyyy-mm-dd) for VIP Expiration or blank, will notify 1 week from expiration of VIP"
-                    label="VIP Expiration"
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        vipExpiration: e.target.value,
-                      })
-                    }
-                    placeholder="yyyy-mm-dd"
-                    size="sm"
-                    type="text"
-                    value={formData.vipExpiration || ""}
-                  />
-                </>
-              )}
+              {(formData.settingsSchema || [])
+                .filter((setting) => setting?.name)
+                .map((setting) => {
+                  const current = formData.cardigannSettings || {};
+                  const updateSetting = (value: string | boolean) => {
+                    setFormData({
+                      ...formData,
+                      cardigannSettings: { ...current, [setting.name]: value },
+                      ...(setting.name === "username" ? { username: String(value) } : {}),
+                      ...(setting.name === "password" ? { password: String(value) } : {}),
+                      ...(setting.name === "apikey" ? { apiKey: String(value) } : {}),
+                    });
+                  };
 
-              {/* Username/Password for Private torrent indexers (not for NZB) */}
-              {formData.privacy === "Private" &&
-                formData.protocol !== "nzb" && (
-                  <>
+                  if (String(setting.type).startsWith("info")) {
+                    return (
+                      <p
+                        className="text-[11px] sm:text-xs text-foreground/60 leading-relaxed"
+                        key={setting.name}
+                      >
+                        {setting.label}
+                        {setting.default ? `: ${String(setting.default).replace(/<[^>]+>/g, "")}` : ""}
+                      </p>
+                    );
+                  }
+
+                  if (setting.type === "checkbox") {
+                    return (
+                      <div
+                        className="flex items-center justify-between p-3 sm:p-4 bg-content2 rounded-lg border border-secondary/20"
+                        key={setting.name}
+                      >
+                        <span className="text-xs sm:text-sm font-medium">{setting.label}</span>
+                        <Switch
+                          color="secondary"
+                          isSelected={Boolean(current[setting.name])}
+                          onValueChange={(checked) => updateSetting(checked)}
+                          size="sm"
+                        />
+                      </div>
+                    );
+                  }
+
+                  if (setting.type === "select" && setting.options) {
+                    const selected = String(current[setting.name] ?? setting.default ?? "");
+                    return (
+                      <Select
+                        classNames={{
+                          trigger: "bg-content2 border border-secondary/20",
+                          label: "text-xs sm:text-sm",
+                        }}
+                        key={setting.name}
+                        label={setting.label}
+                        onSelectionChange={(keys) => {
+                          const value = Array.from(keys)[0] as string;
+                          updateSetting(value);
+                        }}
+                        selectedKeys={selected ? [selected] : []}
+                        size="sm"
+                      >
+                        {Object.entries(setting.options).map(([value, label]) => (
+                          <SelectItem key={value}>{label}</SelectItem>
+                        ))}
+                      </Select>
+                    );
+                  }
+
+                  return (
                     <Input
                       classNames={{
                         inputWrapper:
                           "bg-content2 border border-secondary/20 hover:border-secondary/40",
                         label: "text-xs sm:text-sm",
                       }}
-                      label="Username"
-                      onChange={(e) =>
-                        setFormData({ ...formData, username: e.target.value })
-                      }
+                      key={setting.name}
+                      label={setting.label || setting.name}
+                      onChange={(e) => updateSetting(e.target.value)}
                       size="sm"
-                      value={formData.username || ""}
+                      type={setting.type === "password" ? "password" : "text"}
+                      value={String(current[setting.name] ?? "")}
                     />
-                    <Input
-                      classNames={{
-                        inputWrapper:
-                          "bg-content2 border border-secondary/20 hover:border-secondary/40",
-                        label: "text-xs sm:text-sm",
-                      }}
-                      label="Password"
-                      onChange={(e) =>
-                        setFormData({ ...formData, password: e.target.value })
-                      }
-                      size="sm"
-                      type="password"
-                      value={formData.password || ""}
-                    />
-                  </>
-                )}
+                  );
+                })}
+
+              {formData.protocol === "nzb" && (
+                <Input
+                  classNames={{
+                    inputWrapper:
+                      "bg-content2 border border-secondary/20 hover:border-secondary/40",
+                    label: "text-xs sm:text-sm",
+                  }}
+                  label="API Key"
+                  onChange={(e) =>
+                    setFormData({ ...formData, apiKey: e.target.value })
+                  }
+                  size="sm"
+                  type="password"
+                  value={formData.apiKey || ""}
+                />
+              )}
 
               {/* Tags - Show for all indexers */}
               <Input

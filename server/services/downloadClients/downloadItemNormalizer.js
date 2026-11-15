@@ -1,5 +1,5 @@
 /**
- * Normalizes download client API responses into a Servarr-style DownloadClientItem.
+ * Normalizes download client API responses into a DownloadClientItem.
  *
  * @typedef {Object} NormalizedDownloadItem
  * @property {string} id - Client-specific download ID

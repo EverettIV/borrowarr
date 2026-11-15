@@ -70,6 +70,13 @@ exports.createUsers = async (req, res) => {
     res.status(201).json({ success: true, user: newUser.toPublicJSON() });
   } catch (err) {
     console.error("Create user error:", err);
+    if (err.name === "SequelizeUniqueConstraintError") {
+      return res.status(409).json({ error: "User with this email or username already exists" });
+    }
+    if (err.name === "SequelizeValidationError") {
+      const message = err.errors?.[0]?.message || err.message;
+      return res.status(400).json({ error: message });
+    }
     res.status(500).json({ error: err.message });
   }
 };

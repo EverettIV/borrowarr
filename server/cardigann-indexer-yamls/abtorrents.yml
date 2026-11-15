@@ -32,10 +32,11 @@ caps:
     - {id: 170, cat: Audio/Audiobook, desc: "Literature"}
     - {id: 175, cat: Audio/Audiobook, desc: "LitRPG"}
     - {id: 180, cat: Audio/Audiobook, desc: "Mystery"}
+    - {id: 190, cat: Audio/Audiobook, desc: "Nonfiction"}
     - {id: 215, cat: Audio/Audiobook, desc: "Paranormal Romance"}
     - {id: 200, cat: Audio/Audiobook, desc: "Radio Drama"}
     - {id: 205, cat: Audio/Audiobook, desc: "Reference & Educational"}
-    - {id: 207, cat: Audio/Audiobook, desc: "Religion and Spirituality"}
+    - {id: 207, cat: Audio/Audiobook, desc: "Religion & Spirituality"}
     - {id: 210, cat: Audio/Audiobook, desc: "Romance"}
     - {id: 240, cat: Audio/Audiobook, desc: "Sci-Fi Apocalypse"}
     - {id: 220, cat: Audio/Audiobook, desc: "Science"}
@@ -53,6 +54,7 @@ caps:
     - {id: 420, cat: Books/EBook, desc: "[E] Arts & Crafts (Hobbies)"}
     - {id: 430, cat: Books/EBook, desc: "[E] Biography & Memoirs"}
     - {id: 435, cat: Books/EBook, desc: "[E] Business"}
+    - {id: 720, cat: Books/EBook, desc: "[E] Childrens"}
     - {id: 450, cat: Books/EBook, desc: "[E] Computer Learning"}
     - {id: 460, cat: Books/EBook, desc: "[E] Cookery"}
     - {id: 470, cat: Books/EBook, desc: "[E] Crime & Thriller"}
@@ -66,6 +68,7 @@ caps:
     - {id: 560, cat: Books/EBook, desc: "[E] Literary Fiction"}
     - {id: 565, cat: Books/EBook, desc: "[E] LitRPG"}
     - {id: 570, cat: Books/EBook, desc: "[E] Mystery"}
+    - {id: 580, cat: Books/EBook, desc: "[E] Nonfiction"}
     - {id: 590, cat: Books/EBook, desc: "[E] Paranormal Romance"}
     - {id: 600, cat: Books/EBook, desc: "[E] Reference & Educational"}
     - {id: 610, cat: Books/EBook, desc: "[E] Religion & Spirituality"}
@@ -80,7 +83,6 @@ caps:
     - {id: 690, cat: Books/EBook, desc: "[E] Urban Fantasy & Paranormal"}
     - {id: 700, cat: Books/EBook, desc: "[E] Western"}
     - {id: 710, cat: Books/EBook, desc: "[E] Young Adult"}
-    - {id: 720, cat: Books/EBook, desc: "[E] Young Children"}
 
   modes:
     search: [q]
@@ -128,12 +130,15 @@ search:
     only_free: "{{ if .Config.freeleech }}1{{ else }}0{{ end }}"
 
   rows:
-    selector: table.table-striped > tbody > tr:has(a[href^="download.php?torrent="])
+    selector: table.browse.table.striped > tbody > tr:has(a[href^="download.php?torrent="])
 
   fields: # some users (rank specific?) have an extra column (td:nth-child(4)) with bookmark features
-    categorydesc:
-      selector: img[src^="./pic/caticons"]
-      attribute: alt
+    category:
+      selector: a[href^="browse.php?cat="]
+      attribute: href
+      filters:
+        - name: querystring
+          args: cat
     title:
       selector: a[href^="details.php?id="]
       remove: span.has-text-red
@@ -143,6 +148,9 @@ search:
     download:
       selector: a[href^="download.php?torrent="]
       attribute: href
+    poster:
+      selector: img[src^="/img.php?"]
+      attribute: src
     files:
       selector: a[href^="filelist.php?id="]
     date_day:
@@ -163,15 +171,15 @@ search:
     date:
       text: "{{ if or .Result.date_day .Result.date_year }}{{ or .Result.date_day .Result.date_year }}{{ else }}now{{ end }}"
     size:
-      selector: td:nth-last-child(4) div:first-child
+      selector: td:nth-last-child(4) div[title^="Size"]
     grabs:
       selector: a[href^="snatches.php?id="]
     seeders:
-      selector: a[title="Seeders"]
+      selector: a[title$="Seeders"]
       optional: true
       default: 0
     leechers:
-      selector: a[title="Leechers"]
+      selector: a[title$="Leechers"]
       optional: true
       default: 0
     downloadvolumefactor:

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { useDebounce } from "@/hooks/useDebounce";
+import { useLoadMoreOnVisible } from "@/hooks/useLoadMoreOnVisible";
 import AddSeriesModal from "@/components/AddSeriesModal";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { useAuth } from "@/context/AuthContext";
@@ -126,6 +127,7 @@ const SeriesPage = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -776,28 +778,25 @@ const SeriesPage = () => {
     fetchSeries(1, false);
   }, [fetchSeries]);
 
-  // Infinite scroll handler
-  useEffect(() => {
-    const handleScroll = () => {
-      if (loading || loadingMore || !hasMore) return;
+  const loadNextPage = useCallback(() => {
+    if (loading || loadingMore || !hasMore) return;
+    const nextPage = currentPage + 1;
+    if (nextPage <= totalPages) {
+      fetchSeries(nextPage, true);
+    }
+  }, [
+    loading,
+    loadingMore,
+    hasMore,
+    currentPage,
+    totalPages,
+    fetchSeries,
+  ]);
 
-      const scrollTop =
-        window.pageYOffset || document.documentElement.scrollTop;
-      const windowHeight = window.innerHeight;
-      const documentHeight = document.documentElement.scrollHeight;
-
-      // Load more when user is 200px from bottom
-      if (scrollTop + windowHeight >= documentHeight - 200) {
-        const nextPage = currentPage + 1;
-        if (nextPage <= totalPages) {
-          fetchSeries(nextPage, true);
-        }
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [currentPage, totalPages, hasMore, loading, loadingMore, fetchSeries]);
+  useLoadMoreOnVisible(loadMoreSentinelRef, {
+    enabled: hasMore && !loading && !loadingMore && media.length > 0,
+    onLoadMore: loadNextPage,
+  });
 
   const getMediaTitle = (item: TMDBMedia) => {
     return item.title || item.name || "Unknown";
@@ -896,17 +895,17 @@ const SeriesPage = () => {
         }
       });
 
-      // Save series to monitored list
+      const token = localStorage.getItem("accessToken");
       const posterUrl = item.poster_path
         ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
         : item.posterUrl || null;
 
-      const saveSeriesResponse = await axios.post(
-        `${API_BASE_URL}/api/MonitoredSeries`,
+      const { addSeriesToMonitor } = await import("@/lib/monitoring");
+      const monitorResult = await addSeriesToMonitor(
         {
           userId: user.id,
           tmdbId: item.id,
-          title: title,
+          title,
           posterUrl,
           firstAirDate: item.first_air_date || null,
           overview: item.overview,
@@ -915,99 +914,16 @@ const SeriesPage = () => {
           monitor: "all",
           selectedSeasons: allSeasonNumbers,
           selectedEpisodes: allEpisodes,
+          searchOnAdd: true,
         },
+        token,
       );
-
-      // Download each episode
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const season of seasons) {
-        if (!season.episodes) continue;
-
-        for (const episode of season.episodes) {
-          try {
-            const token = localStorage.getItem("accessToken");
-            // Search for torrents for this episode
-            const torrentResponse = await axios.get(
-              `${API_BASE_URL}/api/TMDB/tv/${item.id}/torrents`,
-              {
-                params: {
-                  title: title,
-                  season: season.season_number,
-                  episode: episode.episode_number,
-                  year: year,
-                  categoryIds: "5000",
-                },
-                headers: token
-                  ? {
-                      Authorization: `Bearer ${token}`,
-                    }
-                  : undefined,
-                timeout: 30000,
-              },
-            );
-
-            if (
-              torrentResponse.data.success &&
-              torrentResponse.data.results.length > 0
-            ) {
-              // Get the best torrent
-              const bestTorrent = torrentResponse.data.results.reduce(
-                (best: any, current: any) => {
-                  const bestPriority = best.indexerPriority ?? 25;
-                  const currentPriority = current.indexerPriority ?? 25;
-                  if (currentPriority < bestPriority) return current;
-                  if (currentPriority > bestPriority) return best;
-
-                  const bestSeeders = best.seeders || 0;
-                  const currentSeeders = current.seeders || 0;
-                  return currentSeeders > bestSeeders ? current : best;
-                },
-              );
-
-              // Download the torrent
-              await axios.post(`${API_BASE_URL}/api/DownloadClients/grab`, {
-                downloadUrl: bestTorrent.downloadUrl,
-                protocol: bestTorrent.protocol,
-              });
-
-              successCount++;
-            } else {
-              failCount++;
-            }
-
-            // Small delay between downloads
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          } catch (error) {
-            failCount++;
-            console.error(
-              `Failed to download episode ${season.season_number}x${episode.episode_number}:`,
-              error,
-            );
-          }
-        }
-      }
-
-      // Update series status
-      if (saveSeriesResponse.data.series?.id && successCount > 0) {
-        try {
-          await axios.put(
-            `${API_BASE_URL}/api/MonitoredSeries/${saveSeriesResponse.data.series.id}`,
-            {
-              status: "downloading",
-            },
-          );
-        } catch (error) {
-          console.error("Error updating series status:", error);
-        }
-      }
 
       setDownloadSuccess((prev) => new Set(prev).add(seriesId));
       showNotification(
-        "Series Added",
-        `Series added to monitoring!\n\nSuccessfully queued: ${successCount} episodes\nFailed: ${failCount} episodes`,
-        successCount > 0 ? "success" : "warning",
+        monitorResult.action === "grabbed" ? "Series Added" : "Added",
+        monitorResult.message || "Series added to monitoring",
+        monitorResult.action === "grabbed" ? "success" : "info",
       );
 
       setTimeout(() => {
@@ -2353,6 +2269,14 @@ const SeriesPage = () => {
                   </React.Fragment>
                 ))}
             </div>
+
+            {hasMore && media.length > 0 && (
+              <div
+                ref={loadMoreSentinelRef}
+                aria-hidden
+                className="h-1 w-full"
+              />
+            )}
 
             {/* Loading more indicator */}
             {loadingMore && (

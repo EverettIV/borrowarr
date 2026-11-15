@@ -5,6 +5,8 @@ description: "leech24 is a Private Torrent Tracker for MOVIES / TV / GENERAL"
 language: en-US
 type: private
 encoding: UTF-8
+certificates:
+  - 5d263f5abbb3448711801378991bf115c95d9a33 # invalid subject
 links:
   - https://leech24.net/
 
@@ -108,12 +110,12 @@ login:
 
 search:
   paths:
-    # https://leech24.net/torrents-search.php?c3=1&c1=1&c2=1&c42=1&c4=1&c7=1&search=&cat=0&incldead=1&freeleech=0&lang=0
+    # https://leech24.net/torrents-search.php?&search=&incldead=1&freeleech=0&lang=0
     - path: torrents-search.php
   inputs:
     $raw: "{{ range .Categories }}c{{.}}=1&{{end}}"
     search: "{{ .Keywords }}"
-    cat: 0
+#    cat: 0 # causes 0 results
     # 0 active, 1 incldead, 2 onlydead
     incldead: 1
     # 0 all, 1 notfree, 2 onlyfree

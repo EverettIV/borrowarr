@@ -36,9 +36,6 @@ import { useState, useRef, useEffect } from "react";
 import { Select, SelectItem } from "@heroui/react";
 import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
-import { Logo } from "@/components/icons";
-import { ThemeSwitch } from "@/components/theme-switch";
-
 export const Navbar = () => {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -58,7 +55,7 @@ export const Navbar = () => {
   const handleAuthAction = () => {
     if (user) {
       logout();
-      router.push("/");
+      router.push("/pages/discover");
     } else {
       router.push("/pages/login");
     }
@@ -139,6 +136,49 @@ export const Navbar = () => {
     };
   }, [accountDropdownOpen, discoverDropdownOpen, settingsDropdownOpen]);
 
+  const renderSearchControls = (className?: string) => (
+    <div className={clsx("flex w-full min-w-0 max-w-full items-center gap-2", className)}>
+      {indexers.length > 0 && (
+        <Select
+          aria-label="Select indexer"
+          classNames={{
+            base: "w-28 sm:w-32 flex-shrink-0",
+            trigger:
+              "bg-content2 border-2 border-secondary/40 hover:border-secondary/40 focus:border-secondary transition-colors",
+          }}
+          items={[{ id: "all", name: "All Indexers" }, ...indexers]}
+          onSelectionChange={(keys) => {
+            const selected = Array.from(keys)[0] as string;
+            setSelectedIndexer(selected || "all");
+          }}
+          placeholder="All"
+          selectedKeys={new Set([selectedIndexer])}
+          size="sm"
+        >
+          {(indexer: any) => (
+            <SelectItem key={indexer.id.toString()}>{indexer.name}</SelectItem>
+          )}
+        </Select>
+      )}
+      <Input
+        classNames={{
+          base: "min-w-0 flex-1",
+          mainWrapper: "h-full",
+          input: "text-small",
+          inputWrapper:
+            "h-full font-normal bg-content2 border border-secondary/20 hover:border-secondary/40 transition-colors",
+        }}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        onKeyPress={handleSearchKeyPress}
+        placeholder="Search all media..."
+        size="sm"
+        startContent={<Search className="text-secondary" size={16} />}
+        type="search"
+        value={searchQuery}
+      />
+    </div>
+  );
+
   return (
     <HeroUINavbar
       className="z-[9999] bg-content1/80 backdrop-blur-xl border-b border-secondary/20 px-4 sm:px-6 w-full"
@@ -159,18 +199,15 @@ export const Navbar = () => {
       position="sticky"
     >
       <NavbarContent
-        className="basis-1/5 sm:basis-full min-w-0 flex-shrink-0"
+        className="basis-1/5 sm:basis-full min-w-0"
         justify="start"
       >
         <NavbarBrand as="li" className="gap-3 max-w-fit">
           <NextLink
-            className="flex justify-start items-center gap-2 group"
-            href="/"
+            className="flex justify-start items-center group"
+            href="/pages/discover"
           >
-            <div className="text-secondary group-hover:scale-110 transition-transform">
-              <Logo />
-            </div>
-            <p className="font-bold text-xl bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent">
+            <p className="font-bold text-xl bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent group-hover:scale-105 transition-transform">
               BorrowArr
             </p>
           </NextLink>
@@ -219,8 +256,13 @@ export const Navbar = () => {
                     </NextLink>
                     <NextLink
                       className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-secondary/10 hover:text-secondary transition-all rounded-md mx-1"
-                      href="/pages/search"
-                      onClick={() => setDiscoverDropdownOpen(false)}
+                      href={user ? "/pages/search" : "/pages/login"}
+                      onClick={() => {
+                        setDiscoverDropdownOpen(false);
+                        if (!user) {
+                          router.push("/pages/login");
+                        }
+                      }}
                     >
                       <Search size={18} />
                       Search Indexers
@@ -461,52 +503,11 @@ export const Navbar = () => {
       </NavbarContent>
 
       <NavbarContent
-        className="hidden sm:flex basis-1/5 sm:basis-full min-w-0 flex-1 gap-2 flex-shrink-0"
+        className="hidden sm:flex basis-1/5 sm:basis-full min-w-0 gap-2"
         justify="end"
       >
-        <NavbarItem className="hidden md:flex flex-1 min-w-0 max-w-md gap-2">
-          {indexers.length > 0 && (
-            <Select
-              aria-label="Select indexer"
-              classNames={{
-                base: "w-32 flex-shrink-0",
-                trigger:
-                  "bg-content2 border-2 border-secondary/40 hover:border-secondary/40 focus:border-secondary transition-colors",
-              }}
-              items={[{ id: "all", name: "All Indexers" }, ...indexers]}
-              onSelectionChange={(keys) => {
-                const selected = Array.from(keys)[0] as string;
-                setSelectedIndexer(selected || "all");
-              }}
-              placeholder="All"
-              selectedKeys={new Set([selectedIndexer])}
-              size="sm"
-            >
-              {(indexer: any) => (
-                <SelectItem
-                  key={indexer.id.toString()}
-                >
-                  {indexer.name}
-                </SelectItem>
-              )}
-            </Select>
-          )}
-          <Input
-            classNames={{
-              base: "w-full min-w-0",
-              mainWrapper: "h-full",
-              input: "text-small",
-              inputWrapper:
-                "h-full font-normal bg-content2 border border-secondary/20 hover:border-secondary/40 transition-colors",
-            }}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyPress={handleSearchKeyPress}
-            placeholder="Search all media..."
-            size="sm"
-            startContent={<Search className="text-secondary" size={16} />}
-            type="search"
-            value={searchQuery}
-          />
+        <NavbarItem className="hidden md:flex min-w-0 max-w-[9rem] sm:max-w-[12rem] lg:max-w-xs xl:max-w-sm">
+          {renderSearchControls()}
         </NavbarItem>
         <NavbarItem className="flex-shrink-0">
           <Button
@@ -518,24 +519,25 @@ export const Navbar = () => {
             {user ? "Logout" : "Login"}
           </Button>
         </NavbarItem>
-        <NavbarItem className="hidden sm:flex gap-2 flex-shrink-0">
-          <ThemeSwitch />
-        </NavbarItem>
       </NavbarContent>
 
       <NavbarContent className="sm:hidden basis-1 pl-4" justify="end">
-        <ThemeSwitch />
         <NavbarMenuToggle />
       </NavbarContent>
 
       <NavbarMenu>
         <div className="mx-auto flex w-full max-w-md flex-col gap-1 px-4 py-3">
+          <div className="mb-3 sm:hidden">{renderSearchControls()}</div>
           {[
             { label: "Premium", href: "/pages/products", icon: Sparkles },
             { label: "Discover", href: "/pages/discover" },
             { label: "Discover Movies", href: "/pages/discover/movies" },
             { label: "Discover Series", href: "/pages/discover/series" },
-            { label: "Search Indexers", href: "/pages/search" },
+            {
+              label: "Search Indexers",
+              href: user ? "/pages/search" : "/pages/login",
+              requiresAuth: true,
+            },
             { label: "Featured Lists", href: "/pages/featuredlists" },
             {
               label: "Indexers",

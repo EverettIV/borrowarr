@@ -6,7 +6,7 @@ language: en-US
 type: private
 encoding: UTF-8
 certificates:
-  - e207e50c00d33374e13dd9da761a8baea4702b2d # Expired 23rd Oct 2025
+  - 3bf77e8aa3cea0c26ae0bceb5c1f20fe75a3d64c # Expired 21st Feb 2026
 links:
   - https://theshow.click/
 legacylinks:

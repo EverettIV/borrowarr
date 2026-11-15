@@ -167,7 +167,12 @@ async function importCompletedDownload(history, userSettings) {
     const ext = path.extname(chosen.path);
     let destName;
     if (autoRename && movie && userSettings.movieFileFormat) {
-      destName = `${applyMovieFormat(userSettings.movieFileFormat, movie, path.basename(chosen.path))}${ext}`;
+      destName = `${await applyMovieFormat(
+        userSettings.movieFileFormat,
+        movie,
+        path.basename(chosen.path),
+        chosen.path,
+      )}${ext}`;
     } else {
       destName = path.basename(chosen.path);
     }
@@ -226,13 +231,14 @@ async function importCompletedDownload(history, userSettings) {
     const ext = path.extname(chosen.path);
     let destRelative;
     if (autoRename && userSettings.seriesFileFormat) {
-      destRelative = `${applySeriesFormat(
+      destRelative = `${await applySeriesFormat(
         userSettings.seriesFileFormat,
         series,
         history.seasonNumber,
         history.episodeNumber,
         '',
-        path.basename(chosen.path)
+        path.basename(chosen.path),
+        chosen.path,
       )}${ext}`;
     } else {
       destRelative = path.basename(chosen.path);

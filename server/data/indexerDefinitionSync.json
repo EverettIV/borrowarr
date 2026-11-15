@@ -1,0 +1,14 @@
+{
+  "enabled": false,
+  "intervalHours": 24,
+  "lastAttemptAt": "2026-11-15T19:34:18.587Z",
+  "lastSuccessAt": "2026-11-15T19:34:20.111Z",
+  "lastError": null,
+  "definitionCount": 584,
+  "failedCount": 0,
+  "failures": [],
+  "sourceRepo": "Prowlarr/Indexers",
+  "sourceRef": "master",
+  "sourceVersion": "v11",
+  "sourceCommit": "9246a15ec746659c52890dfd814f5a85ea6f76da"
+}

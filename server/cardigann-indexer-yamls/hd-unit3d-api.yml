@@ -19,7 +19,6 @@ caps:
     tv-search: [q, season, ep, imdbid, tvdbid, tmdbid]
     movie-search: [q, imdbid, tmdbid]
     music-search: [q]
-    book-search: [q]
 
 settings:
   - name: apikey
@@ -59,7 +58,7 @@ settings:
     default: "Inactive accounts will be deleted as scheduled by Staff."
 
 login:
-  path: /api/torrents
+  path: api/torrents
   method: get
   inputs: {} # TODO: remove in v10
   error:

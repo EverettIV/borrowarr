@@ -12,6 +12,7 @@ const protectedRoutes = [
   "/pages/monitored",
   "/pages/indexers",
   "/pages/settings",
+  "/pages/search",
 ];
 
 const AuthRouter = (props: any) => {

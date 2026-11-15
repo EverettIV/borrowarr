@@ -1,10 +1,15 @@
 const Settings = require('../models/Settings');
+const { clampQualityPair } = require('../utils/qualitySelection');
 const User = require("../models/User");
 const fs = require('fs').promises;
 const path = require('path');
 const { importMoviesFromDirectory } = require('../services/libraryImporter');
 const { importSeriesFromDirectory } = require('../services/seriesImporter');
 const { previewMovieRenames, executeMovieRenames, previewSeriesRenames, executeSeriesRenames } = require('../services/fileRenamer');
+const {
+  scanMovieAnomalies,
+  deleteDuplicateMediaFile,
+} = require('../services/anomalyDetector');
 
 // Lazy load auto-rename service to avoid circular dependency issues
 let autoRenameService = null;
@@ -22,6 +27,14 @@ const getDownloadWatcherService = () => {
     downloadWatcherService = require('../services/downloadWatcher');
   }
   return downloadWatcherService;
+};
+
+let anomalySchedulerService = null;
+const getAnomalySchedulerService = () => {
+  if (!anomalySchedulerService) {
+    anomalySchedulerService = require('../services/anomalyDetectorScheduler');
+  }
+  return anomalySchedulerService;
 };
 
 // Lazy load monitoring service
@@ -91,6 +104,30 @@ exports.updateSettings = async (req, res) => {
       !req.user?.permissions?.admin
     ) {
       return res.status(403).json({ error: "Only admins can change public registration" });
+    }
+
+    if (updates.checkInterval !== undefined) {
+      const sec = Number(updates.checkInterval);
+      if (!Number.isFinite(sec) || sec < 60) {
+        return res.status(400).json({
+          error: "Check interval must be at least 60 seconds",
+          field: "checkInterval",
+        });
+      }
+      updates.checkInterval = Math.round(sec);
+    }
+
+    const qualityFields = ["minQuality", "maxQuality"];
+    const touchesQuality = qualityFields.some((key) => updates[key] !== undefined);
+    if (touchesQuality) {
+      const existing = await Settings.findOne({ where: { userId } });
+      const clamped = clampQualityPair(
+        updates.minQuality ?? existing?.minQuality ?? "720p",
+        updates.maxQuality ?? existing?.maxQuality ?? "1080p",
+      );
+      updates.minQuality = clamped.minQuality;
+      updates.maxQuality = clamped.maxQuality;
+      updates.preferredQuality = clamped.preferredQuality;
     }
 
     // Validate media directories if provided (skip if null, undefined, or empty)
@@ -264,7 +301,24 @@ exports.updateSettings = async (req, res) => {
       updates.seriesDownloadDirectory !== undefined ||
       updates.movieWatcherDestination !== undefined ||
       updates.seriesWatcherDestination !== undefined ||
-      updates.watcherInterval !== undefined
+      updates.watcherInterval !== undefined ||
+      updates.watcherAutoApprove !== undefined ||
+      updates.movieWatcherDownloadMode !== undefined ||
+      updates.movieWatcherMediaMode !== undefined ||
+      updates.movieWatcherCustomDownloadDirectory !== undefined ||
+      updates.movieWatcherCustomMediaDirectory !== undefined ||
+      updates.seriesWatcherDownloadMode !== undefined ||
+      updates.seriesWatcherMediaMode !== undefined ||
+      updates.seriesWatcherCustomDownloadDirectory !== undefined ||
+      updates.seriesWatcherCustomMediaDirectory !== undefined ||
+      updates.movieWatcherEnabled !== undefined ||
+      updates.seriesWatcherEnabled !== undefined ||
+      updates.applyNamingOnWatcherApprove !== undefined ||
+      updates.applyNamingOnAutomaticMove !== undefined ||
+      updates.movieApplyNamingOnWatcherApprove !== undefined ||
+      updates.seriesApplyNamingOnWatcherApprove !== undefined ||
+      updates.movieApplyNamingOnAutomaticMove !== undefined ||
+      updates.seriesApplyNamingOnAutomaticMove !== undefined
     );
 
     if (watcherSettingsChanged) {
@@ -278,6 +332,31 @@ exports.updateSettings = async (req, res) => {
       }
     }
 
+    const anomalySchedulerChanged =
+      updates.anomalyDetectorAutoScanEnabled !== undefined ||
+      updates.anomalyDetectorScanInterval !== undefined ||
+      updates.anomalyDetectorScanDirKey !== undefined ||
+      updates.anomalyDetectorCustomScanPath !== undefined ||
+      updates.anomalyDetectorCheckDuplicates !== undefined ||
+      updates.anomalyDetectorCheckCorruption !== undefined ||
+      updates.anomalyDetectorCheckLargeFiles !== undefined ||
+      updates.movieDownloadDirectory !== undefined ||
+      updates.movieWatcherDestination !== undefined ||
+      updates.seriesDownloadDirectory !== undefined ||
+      updates.seriesWatcherDestination !== undefined;
+
+    if (anomalySchedulerChanged) {
+      try {
+        const { updateAnomalyScheduler } = getAnomalySchedulerService();
+        updateAnomalyScheduler(userId, settings.toJSON());
+        console.log(
+          `[Settings] Anomaly auto-scan updated for user ${userId}: enabled=${settings.anomalyDetectorAutoScanEnabled}`,
+        );
+      } catch (anomalySchedulerError) {
+        console.error('Error updating anomaly scheduler:', anomalySchedulerError);
+      }
+    }
+
     // Update monitoring scheduler if checkInterval or autoDownload changed
     const monitoringSettingsChanged = (
       updates.checkInterval !== undefined ||
@@ -288,7 +367,7 @@ exports.updateSettings = async (req, res) => {
       try {
         const { scheduleUserMonitoring } = getMonitoringService();
         await scheduleUserMonitoring(userId);
-        console.log(`🔄 [Settings] Monitoring scheduler updated for user ${userId}: checkInterval=${settings.checkInterval}min, autoDownload=${settings.autoDownload}`);
+        console.log(`🔄 [Settings] Monitoring scheduler updated for user ${userId}: checkInterval=${settings.checkInterval}s, autoDownload=${settings.autoDownload}`);
       } catch (monitoringError) {
         console.error('Error updating monitoring scheduler:', monitoringError);
         // Don't fail the request, just log the error
@@ -568,32 +647,100 @@ exports.previewRenames = async (req, res) => {
     const results = {
       movies: [],
       series: [],
+      stats: { movies: null, series: null },
       total: 0,
     };
 
-    // Preview movie renames if format provided
     if (movieFileFormat) {
-      results.movies = await previewMovieRenames(userId, movieFileFormat);
+      const moviePreview = await previewMovieRenames(userId, movieFileFormat);
+      results.movies = moviePreview.renames || moviePreview;
+      results.stats.movies = moviePreview.stats || null;
     }
 
-    // Preview series renames if format provided
     if (seriesFileFormat) {
-      results.series = await previewSeriesRenames(userId, seriesFileFormat);
+      const seriesPreview = await previewSeriesRenames(userId, seriesFileFormat);
+      results.series = seriesPreview.renames || seriesPreview;
+      results.stats.series = seriesPreview.stats || null;
     }
 
     results.total = results.movies.length + results.series.length;
 
+    const { validateMovieFormat, validateSeriesFormat } = require('../services/mediaOrganizer');
+    const formatHints = {
+      movie: movieFileFormat ? validateMovieFormat(movieFileFormat) : null,
+      series: seriesFileFormat ? validateSeriesFormat(seriesFileFormat) : null,
+    };
+
     res.json({
       success: true,
-      renames: results.movies, // For backwards compatibility with existing frontend
+      renames: results.movies,
       movies: results.movies,
       series: results.series,
       count: results.total,
+      stats: results.stats,
+      formatHints,
     });
   } catch (error) {
     console.error('Error previewing renames:', error);
     res.status(500).json({ error: error.message || 'Failed to preview renames' });
   }
+};
+
+/**
+ * Apply a manual TMDB pick to one movie rename preview row
+ */
+exports.applyMovieTmdbMatch = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { currentPath, movieFileFormat, tmdbId } = req.body;
+    if (!currentPath || !movieFileFormat || !tmdbId) {
+      return res.status(400).json({
+        error: 'currentPath, movieFileFormat, and tmdbId are required',
+      });
+    }
+    const { recomputeMovieRenameWithTmdb } = require('../services/fileRenamer');
+    const row = await recomputeMovieRenameWithTmdb(
+      userId,
+      currentPath,
+      movieFileFormat,
+      Number(tmdbId),
+    );
+    res.json({ success: true, rename: row });
+  } catch (error) {
+    console.error('Error applying TMDB match for rename:', error);
+    res.status(500).json({ error: error.message || 'Failed to apply TMDB match' });
+  }
+};
+
+/**
+ * Start a background rename batch (progress survives page reload).
+ */
+exports.startRenameBatch = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { renames } = req.body;
+    const { startBatch } = require('../services/renameBatchRunner');
+    const batch = startBatch(userId, renames);
+    res.json({ success: true, batch });
+  } catch (error) {
+    const status = error.code === 'BATCH_RUNNING' ? 409 : 400;
+    res.status(status).json({ error: error.message || 'Failed to start rename batch' });
+  }
+};
+
+exports.getRenameBatchStatus = async (req, res) => {
+  const { getBatchStatus } = require('../services/renameBatchRunner');
+  const batch = getBatchStatus(req.userId);
+  res.json({ batch });
+};
+
+exports.dismissRenameBatch = async (req, res) => {
+  const { dismissBatch } = require('../services/renameBatchRunner');
+  const ok = dismissBatch(req.userId);
+  if (!ok) {
+    return res.status(409).json({ error: 'Batch is still running' });
+  }
+  res.json({ success: true });
 };
 
 /**
@@ -620,6 +767,26 @@ exports.executeRenames = async (req, res) => {
     } else {
       results = await executeMovieRenames(userId, renames);
     }
+
+    const { recordActivitySafe, ActivityCategory } = require('../services/activityLogService');
+    await recordActivitySafe(userId, {
+      category: ActivityCategory.FILE_RENAME,
+      action: `${actualType === 'series' ? 'series' : 'movie'}_batch_complete`,
+      status:
+        results.failed > 0
+          ? results.success > 0
+            ? 'info'
+            : 'failure'
+          : 'success',
+      summary: `Rename batch (${actualType}): ${results.success} succeeded, ${results.failed} failed`,
+      details: {
+        type: actualType,
+        requested: renames.length,
+        success: results.success,
+        failed: results.failed,
+        errors: results.errors,
+      },
+    });
 
     res.json({
       success: true,
@@ -700,16 +867,31 @@ exports.getDownloadWatcherStatus = async (req, res) => {
 exports.triggerDownloadWatcherScan = async (req, res) => {
   try {
     const userId = req.userId;
-    
+
     console.log(`👁️ [Settings] Manual download watcher scan for user ${userId}`);
-    
+
     const { triggerScan } = getDownloadWatcherService();
-    const result = await triggerScan(userId);
-    
+    const result = await triggerScan(userId, req.body || {});
+
     res.json(result);
   } catch (error) {
     console.error('Error triggering download watcher scan:', error);
     res.status(500).json({ error: error.message || 'Failed to trigger scan' });
+  }
+};
+
+/**
+ * Preview what the download watcher would move (dry run)
+ */
+exports.previewDownloadWatcher = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { previewMoves } = getDownloadWatcherService();
+    const result = await previewMoves(userId, req.body || {});
+    res.json(result);
+  } catch (error) {
+    console.error('Error previewing download watcher:', error);
+    res.status(500).json({ error: error.message || 'Failed to preview moves' });
   }
 };
 
@@ -764,12 +946,128 @@ exports.rejectFile = async (req, res) => {
     }
     
     const { rejectFile } = getDownloadWatcherService();
-    const result = rejectFile(userId, fileId);
+    const result = await rejectFile(userId, fileId);
     
     res.json(result);
   } catch (error) {
     console.error('Error rejecting file:', error);
     res.status(500).json({ error: error.message || 'Failed to reject file' });
+  }
+};
+
+/**
+ * Scan media library for anomalies (starting with duplicate movies).
+ */
+exports.scanAnomalies = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { isAnomalyScanInProgress } = getAnomalySchedulerService();
+    if (isAnomalyScanInProgress(userId)) {
+      return res.status(409).json({
+        error: 'An automatic scan is already running. Cancel it or wait for it to finish.',
+      });
+    }
+
+    const mediaType = req.body?.mediaType || 'movies';
+
+    if (mediaType !== 'movies') {
+      return res.status(400).json({
+        error: 'Only movie duplicate detection is supported for now',
+      });
+    }
+
+    const directoryPath = req.body?.directoryPath;
+    if (!directoryPath) {
+      return res.status(400).json({ error: 'directoryPath is required' });
+    }
+
+    const checkDuplicates = req.body?.checkDuplicates !== false;
+    const checkCorruption = Boolean(req.body?.checkCorruption);
+    const checkLargeFiles = Boolean(req.body?.checkLargeFiles);
+
+    const result = await scanMovieAnomalies(userId, {
+      directoryPath,
+      checkDuplicates,
+      checkCorruption,
+      checkLargeFiles,
+    });
+    const { recordManualScanResult } = getAnomalySchedulerService();
+    await recordManualScanResult(userId, result);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    if (
+      error.code === 'NO_MEDIA_DIR' ||
+      error.code === 'MEDIA_DIR_INACCESSIBLE' ||
+      error.code === 'NO_CHECKS'
+    ) {
+      const { recordManualScanResult } = getAnomalySchedulerService();
+      await recordManualScanResult(userId, null, error.message);
+      return res.status(400).json({ error: error.message });
+    }
+    console.error('Error scanning anomalies:', error);
+    const message = error.message || 'Failed to scan for anomalies';
+    const { recordManualScanResult } = getAnomalySchedulerService();
+    await recordManualScanResult(userId, null, message);
+    res.status(500).json({ error: message });
+  }
+};
+
+/**
+ * Anomaly detector scheduler status (auto-scan logs).
+ */
+exports.getAnomalyDetectorStatus = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { getAnomalyDetectorStatus } = getAnomalySchedulerService();
+    res.json({ success: true, ...(await getAnomalyDetectorStatus(userId)) });
+  } catch (error) {
+    console.error('Error getting anomaly detector status:', error);
+    res.status(500).json({ error: 'Failed to get anomaly detector status' });
+  }
+};
+
+exports.cancelAnomalyScan = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { requestCancelAnomalyScan } = getAnomalySchedulerService();
+    const result = requestCancelAnomalyScan(userId);
+    if (!result.success) {
+      return res.status(409).json({ error: result.error });
+    }
+    res.json({ success: true, message: 'Cancellation requested' });
+  } catch (error) {
+    console.error('Error cancelling anomaly scan:', error);
+    res.status(500).json({ error: 'Failed to cancel scan' });
+  }
+};
+
+/**
+ * Delete a duplicate media file from disk (under configured media directories).
+ */
+exports.deleteAnomalyMediaFile = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { filePath, scanDirectory } = req.body;
+
+    if (!filePath) {
+      return res.status(400).json({ error: 'filePath is required' });
+    }
+
+    const result = await deleteDuplicateMediaFile(userId, filePath, {
+      scanDirectory,
+    });
+    res.json(result);
+  } catch (error) {
+    if (
+      error.code === 'INVALID_PATH' ||
+      error.code === 'PATH_NOT_ALLOWED' ||
+      error.code === 'NOT_A_FILE' ||
+      error.code === 'ENOENT'
+    ) {
+      return res.status(400).json({ error: error.message });
+    }
+    console.error('Error deleting anomaly media file:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete file' });
   }
 };
 

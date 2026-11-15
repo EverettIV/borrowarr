@@ -369,7 +369,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
     }
   };
 
-  const validateBeforeAction = (): boolean => {
+  const validateBeforeAction = (options?: { forMediaRequest?: boolean }): boolean => {
     if (!user) {
       showNotification(
         "Sign In Required",
@@ -377,6 +377,10 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
         "warning",
       );
       return false;
+    }
+
+    if (options?.forMediaRequest) {
+      return true;
     }
 
     if (!hasIndexers) {
@@ -1526,16 +1530,19 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
   };
 
   const handleAddSeries = async () => {
-    if (!validateBeforeAction()) {
-      return;
-    }
-
     if (!media || selectedEpisodes.size === 0) {
       showNotification(
         "Selection Required",
         "Please select at least one episode to monitor",
         "warning",
       );
+      return;
+    }
+
+    const hasAutoApprove =
+      user?.permissions?.auto_approve || user?.permissions?.admin;
+
+    if (!validateBeforeAction({ forMediaRequest: !hasAutoApprove })) {
       return;
     }
 
@@ -1567,10 +1574,10 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       });
 
       const title = media.name || media.title || "";
-
-      // Check if user has auto_approve permission
-      const hasAutoApprove =
-        user?.permissions?.auto_approve || user?.permissions?.admin;
+      const token = localStorage.getItem("accessToken");
+      const authHeaders = token
+        ? { Authorization: `Bearer ${token}` }
+        : undefined;
 
       // If user doesn't have auto_approve, create a request instead
       if (!hasAutoApprove) {
@@ -1596,6 +1603,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
             selectedEpisodes: selectedEpisodesArray,
             qualityProfile: "any",
           },
+          { headers: authHeaders },
         );
 
         if (requestResponse.data.autoApproved) {
@@ -1620,224 +1628,49 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
         return;
       }
 
-      // User has auto_approve - proceed with normal monitoring flow
-
-      // Get minimum quality from user settings
-      const effectiveMinQuality = userSettings?.minQuality || "720p";
-      console.log(
-        "[AddSeriesModal] Using quality threshold:",
-        effectiveMinQuality,
-      );
-
-      // Check which episodes already exist in library - also check if they meet quality threshold
-      let existingEpisodes: Set<string> = new Set();
-      let existingButBelowQuality: Set<string> = new Set();
-      let episodesToActuallyDownload = [...episodesToDownload];
-      let allEpisodesExist = false;
-
-      try {
-        const checkExistsResponse = await axios.post(
-          `${API_BASE_URL}/api/MonitoredSeries/check-exists`,
-          {
-            userId: user!.id,
-            title: title,
-            episodes: episodesToDownload.map((ep) => ({
-              seasonNumber: ep.seasonNumber,
-              episodeNumber: ep.episodeNumber,
-            })),
-          },
-        );
-
-        if (
-          checkExistsResponse.data.success &&
-          checkExistsResponse.data.results
-        ) {
-          // Mark existing episodes and check quality
-          for (const result of checkExistsResponse.data.results) {
-            if (result.exists) {
-              const episodeKey = `${result.seasonNumber}-${result.episodeNumber}`;
-              const existingQuality = detectQualityFromFilename(
-                result.fileInfo?.fileName || "",
-              );
-              const meetsQuality = fileMeetsQualityThreshold(
-                existingQuality,
-                effectiveMinQuality,
-              );
-
-              if (meetsQuality) {
-                existingEpisodes.add(episodeKey);
-              } else {
-                // Episode exists but below quality threshold - needs re-download
-                existingButBelowQuality.add(episodeKey);
-                console.log(
-                  `[AddSeriesModal] Episode ${episodeKey} exists at ${existingQuality} but below threshold ${effectiveMinQuality}`,
-                );
-              }
-            }
-          }
-
-          // Check if ALL episodes exist AND meet quality
-          allEpisodesExist =
-            existingEpisodes.size === episodesToDownload.length;
-
-          // Filter out only episodes that exist AND meet quality threshold
-          episodesToActuallyDownload = episodesToDownload.filter(
-            (ep) =>
-              !existingEpisodes.has(`${ep.seasonNumber}-${ep.episodeNumber}`),
-          );
-
-          // Log info about episodes
-          if (existingEpisodes.size > 0) {
-            console.log(
-              `[AddSeriesModal] ${existingEpisodes.size} episodes already exist at good quality`,
-            );
-          }
-          if (existingButBelowQuality.size > 0) {
-            console.log(
-              `[AddSeriesModal] ${existingButBelowQuality.size} episodes exist but need quality upgrade`,
-            );
-          }
-          console.log(
-            `[AddSeriesModal] ${episodesToActuallyDownload.length} episodes to download`,
-          );
-        }
-      } catch (error) {
-        console.log(
-          "[AddSeriesModal] Could not check for existing episodes, continuing with all...",
-        );
-        // Continue if check fails
-      }
-
-      // Save series to database and get user's autoDownload setting
       const posterUrl = media.poster_path
         ? `${TMDB_IMAGE_BASE_URL}${media.poster_path}`
         : media.posterUrl || null;
-
       const firstAirDate = media.first_air_date || null;
-
-      const saveSeriesResponse = await axios.post(
-        `${API_BASE_URL}/api/MonitoredSeries`,
+      const { addSeriesToMonitor } = await import("@/lib/monitoring");
+      const monitorResult = await addSeriesToMonitor(
         {
           userId: user!.id,
           tmdbId: media.id,
-          title: title,
+          title,
           posterUrl,
-          firstAirDate: firstAirDate,
+          firstAirDate,
           overview: media.overview,
-          qualityProfile: "any", // Can be made configurable later
-          minAvailability: "released", // Can be made configurable later
-          monitor: "all", // Can be made configurable later
+          qualityProfile: "any",
+          minAvailability: "released",
+          monitor: "all",
           selectedSeasons: selectedSeasonsArray,
           selectedEpisodes: selectedEpisodesArray,
-          status: allEpisodesExist ? "downloaded" : "monitoring", // Set status based on file existence
+          searchOnAdd: true,
         },
+        token,
       );
 
-      const seriesId = saveSeriesResponse.data.series?.id;
-      const isUpdate = saveSeriesResponse.data.isUpdate;
-      const autoDownload = saveSeriesResponse.data.autoDownload ?? true;
-
-      console.log(
-        `[AddSeriesModal] Series saved. autoDownload: ${autoDownload}, allEpisodesExist: ${allEpisodesExist}`,
-      );
-
-      // If all episodes already exist, show success and close
-      if (allEpisodesExist) {
-        setTimeout(() => {
-          onClose();
-          const message = isUpdate
-            ? `Series monitoring updated! All ${existingEpisodes.size} episodes already exist in library.`
-            : `Series added to monitoring! All ${existingEpisodes.size} episodes already downloaded.`;
-          showNotification("✅ Success", message, "success");
-          if (onAddSeries) onAddSeries();
-        }, 500);
-        return;
-      }
-
-      // If autoDownload is disabled, just add to monitoring without downloading
-      if (!autoDownload) {
-        setTimeout(() => {
-          onClose();
-          let message = isUpdate
-            ? `Series monitoring updated! Will check for files periodically.`
-            : `Series added to monitoring! Auto-download is disabled - will check for files periodically.`;
-          if (existingEpisodes.size > 0) {
-            message += `\n\n${existingEpisodes.size} episodes already exist in library.`;
-          }
-          showNotification("Success", message, "success");
-          if (onAddSeries) onAddSeries();
-        }, 500);
-        return;
-      }
-
-      // autoDownload is enabled - proceed with downloading episodes (only missing ones)
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const episode of episodesToActuallyDownload) {
-        try {
-          await downloadEpisode(
-            episode.seasonNumber,
-            episode.episodeNumber,
-            episode.episodeName,
-          );
-          successCount++;
-          // Small delay between downloads to avoid overwhelming the system
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        } catch (error) {
-          failCount++;
-          console.error(`Failed to download ${episode.episodeName}:`, error);
-        }
-      }
-
-      // Update series status if we have a seriesId
-      if (seriesId) {
-        try {
-          const newStatus =
-            existingEpisodes.size > 0 && episodesToActuallyDownload.length === 0
-              ? "downloaded"
-              : successCount > 0
-                ? "downloading"
-                : "monitoring";
-          await axios.put(`${API_BASE_URL}/api/MonitoredSeries/${seriesId}`, {
-            status: newStatus,
-          });
-        } catch (error) {
-          console.error("Error updating series status:", error);
-        }
-      }
-
-      // Close modal and show summary
       setTimeout(() => {
         onClose();
-        let summaryMessage = `Series added to monitoring!\n\n`;
-        if (existingEpisodes.size > 0) {
-          summaryMessage += `Already in library (${effectiveMinQuality}+): ${existingEpisodes.size} episodes\n`;
-        }
-        if (existingButBelowQuality.size > 0) {
-          summaryMessage += `Quality upgrade needed: ${existingButBelowQuality.size} episodes\n`;
-        }
-        if (episodesToActuallyDownload.length > 0) {
-          summaryMessage += `Successfully queued: ${successCount} episodes\nFailed: ${failCount} episodes`;
-        } else if (
-          existingEpisodes.size === 0 &&
-          existingButBelowQuality.size === 0
-        ) {
-          summaryMessage += `Will search for downloads automatically.`;
-        }
-
         showNotification(
-          "Series Added",
-          summaryMessage,
-          successCount > 0 || existingEpisodes.size > 0 ? "success" : "info",
+          monitorResult.action === "grabbed" ? "Series Added" : "Added",
+          monitorResult.message || "Series added to monitoring",
+          monitorResult.action === "grabbed" ? "success" : "info",
         );
         if (onAddSeries) onAddSeries();
-      }, 1000);
-    } catch (error: any) {
+      }, 500);
+      return;
+    } catch (error: unknown) {
       console.error("Error adding series:", error);
+      const errorMsg = axios.isAxiosError(error)
+        ? error.response?.data?.error || error.message
+        : error instanceof Error
+          ? error.message
+          : "Failed to add series";
       showNotification(
-        "Error",
-        error.message || "Failed to add series",
+        "Download Error",
+        errorMsg || "Failed to add series",
         "error",
       );
     } finally {

@@ -1,5 +1,5 @@
 /**
- * Completed Download Handling (CDH) — Servarr-style tracked downloads.
+ * Completed Download Handling (CDH) — tracked downloads.
  *
  * 1. On grab, History stores client ID + metadata (see DownloadClients.grabRelease).
  * 2. This service polls download clients on an interval.
@@ -305,7 +305,13 @@ function startCompletedDownloadScheduler() {
   console.log('[CDH] Completed download handling scheduler started');
 }
 
-function triggerRefreshAfterGrab(userId) {
+async function triggerRefreshAfterGrab(userId) {
+  try {
+    const row = await Settings.findOne({ where: { userId } });
+    if (!row?.completedDownloadHandlingEnabled) return;
+  } catch {
+    return;
+  }
   setTimeout(() => {
     refreshUserTrackedDownloads(userId).catch((err) => {
       console.error('[CDH] Post-grab refresh failed:', err.message);

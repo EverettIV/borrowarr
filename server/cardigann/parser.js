@@ -16,9 +16,9 @@ class CardigannParser {
   /**
    * Load HTML content for parsing
    */
-  loadHTML(html) {
+  loadHTML(html, xml = false) {
     this.$ = cheerio.load(html, {
-      xml: false,
+      xml: Boolean(xml),
       decodeEntities: true,
     });
   }
@@ -26,14 +26,14 @@ class CardigannParser {
   /**
    * Parse HTML response
    */
-  parseHTML(html, baseUrl, config = {}) {
+  parseHTML(html, baseUrl, config = {}, responseType) {
     // Apply preprocessing filters (like Prowlarr lines 240-245)
     const preprocessingFilters = this.definition.search?.preprocessingfilters;
     if (preprocessingFilters && preprocessingFilters.length > 0) {
       html = this.filterEngine.applyFilters(html, preprocessingFilters);
     }
 
-    this.loadHTML(html);
+    this.loadHTML(html, responseType === 'xml' || /^\s*<\?xml/i.test(String(html || '')));
     
     const rowsConfig = this.definition.search.rows;
     const fieldsConfig = this.definition.search.fields;
@@ -142,7 +142,7 @@ class CardigannParser {
         const variablesKey = `.Result.${fieldName}`;
         
         try {
-          let value = this.extractField(row, fieldConfig, baseUrl, config);
+          let value = this.extractField(row, fieldConfig, baseUrl, config, variables);
           
           // If optional and empty, use default value (like Prowlarr lines 306-316)
           if (isOptional && !value) {
@@ -188,22 +188,18 @@ class CardigannParser {
   }
   
   /**
-   * Process template syntax in values
+   * Process Cardigann template syntax, including if/or/range and .Result fields.
    */
   processTemplateInValue(value, config = {}, variables = {}) {
-    if (typeof value !== 'string') return value;
-    
-    // Replace {{ .Config.X }} with config values
-    value = value.replace(/\{\{\s*\.Config\.(\w+)\s*\}\}/g, (match, key) => {
-      return config[key] || '';
-    });
-    
-    // Replace {{ .Result.X }} with previously extracted values
-    value = value.replace(/\{\{\s*\.Result\.(\w+)\s*\}\}/g, (match, key) => {
-      return variables[`.Result.${key}`] || '';
-    });
-    
-    return value;
+    if (typeof value !== 'string' || !value.includes('{{')) return value;
+
+    const CardigannTemplateEngine = require('./templateEngine');
+    const engine = new CardigannTemplateEngine(config || {});
+    const result = {};
+    for (const [key, fieldValue] of Object.entries(variables || {})) {
+      if (key.startsWith('.Result.')) result[key.slice('.Result.'.length)] = fieldValue;
+    }
+    return engine.process(value, { Result: result, Config: config || {} });
   }
   
   /**
@@ -218,7 +214,7 @@ class CardigannParser {
       if (typeof filter === 'object' && filter.name) {
         switch (filter.name) {
           case 'andmatch':
-            // Handled by upper layer (search controller)
+            if (this.rowMissesKeywords(data)) return true;
             break;
           case 'strdump':
             // Debug filter - log the row
@@ -233,10 +229,47 @@ class CardigannParser {
     return false;
   }
 
+  rowMissesKeywords(data) {
+    const keywords = String(this.searchKeywords || '').trim();
+    if (!keywords) return false;
+    const haystack = `${data.title || ''} ${data.description || ''}`.toLowerCase();
+    const terms = keywords.toLowerCase().match(/"[^"]+"|\S+/g) || [];
+    return terms.some((term) => {
+      const word = term.replace(/^"|"$/g, '');
+      if (!word) return false;
+      if (word.startsWith('-')) return word.length > 1 && haystack.includes(word.slice(1));
+      return !haystack.includes(word);
+    });
+  }
+
+  findInRow(row, selector) {
+    const wanted = String(selector || '').trim();
+    const empty = () => row.find('___cardigann_none___');
+    if (!wanted) return empty();
+
+    try {
+      const found = row.find(wanted).first();
+      if (found.length) return found;
+    } catch {
+      // Selector can name an XML element css-select cannot query, such as tv:raw_title.
+    }
+
+    if (/^[A-Za-z0-9_:-]+$/.test(wanted)) {
+      const lower = wanted.toLowerCase();
+      const named = row.find('*').filter((_, el) => {
+        const name = String(el.name || '').toLowerCase();
+        return name === lower || name.endsWith(`:${lower}`);
+      }).first();
+      if (named.length) return named;
+    }
+
+    return empty();
+  }
+
   /**
    * Extract a single field from a row
    */
-  extractField(row, fieldConfig, baseUrl, config = {}) {
+  extractField(row, fieldConfig, baseUrl, config = {}, variables = {}) {
     // Handle string selector (shorthand)
     if (typeof fieldConfig === 'string') {
       return row.find(fieldConfig).first().text().trim();
@@ -246,38 +279,43 @@ class CardigannParser {
     
     // Handle static text with template processing
     if (fieldConfig.text !== undefined) {
-      value = fieldConfig.text;
-      // Process {{ .Config.X }} in text values
-      if (typeof value === 'string') {
-        value = value.replace(/\{\{\s*\.Config\.(\w+)\s*\}\}/g, (match, configKey) => {
-          return config[configKey] || '';
-        });
-      }
+      value = this.processTemplateInValue(fieldConfig.text, config, variables);
     }
     // Handle case selector (Prowlarr lines 164-184) - try multiple selectors
     else if (fieldConfig.case) {
-      for (const [caseSelector, caseValue] of Object.entries(fieldConfig.case)) {
-        const caseElement = row.find(caseSelector);
-        if (caseElement.length > 0) {
-          // Found a match, use this value
-          value = caseValue;
-          // Process template in case value
-          if (typeof value === 'string') {
-            value = value.replace(/\{\{\s*\.Config\.(\w+)\s*\}\}/g, (match, configKey) => {
-              return config[configKey] || '';
-            });
+      const selector = fieldConfig.selector
+        ? this.processTemplateInValue(fieldConfig.selector, config, variables)
+        : '';
+      const target = selector ? this.findInRow(row, selector) : row;
+      if (!target.length && selector) {
+        if (!fieldConfig.optional) {
+          throw new Error(`None of the case selectors matched`);
+        }
+      } else {
+        for (const [caseSelector, caseValue] of Object.entries(fieldConfig.case)) {
+          let matched = caseSelector === '*';
+          if (!matched) {
+            try {
+              matched = Boolean(target.is(caseSelector) || target.find(caseSelector).length);
+            } catch {
+              matched = false;
+            }
           }
-          break;
+          if (matched) {
+            value = this.processTemplateInValue(caseValue, config, variables);
+            break;
+          }
         }
       }
-      
+
       if (value === null && !fieldConfig.optional) {
         throw new Error(`None of the case selectors matched`);
       }
     }
     // Handle selector
     else if (fieldConfig.selector) {
-      const element = row.find(fieldConfig.selector).first();
+      const selector = this.processTemplateInValue(fieldConfig.selector, config, variables);
+      const element = this.findInRow(row, selector);
       
       if (element.length === 0) {
         // Element not found
@@ -290,11 +328,6 @@ class CardigannParser {
         // Extract value
         if (fieldConfig.attribute) {
           value = element.attr(fieldConfig.attribute) || '';
-          
-          // Make relative URLs absolute
-          if (value && (fieldConfig.attribute === 'href' || fieldConfig.attribute === 'src')) {
-            value = this.makeAbsoluteURL(value, baseUrl);
-          }
         } else if (fieldConfig.remove) {
           // Remove elements before getting text
           const clone = element.clone();
@@ -312,19 +345,38 @@ class CardigannParser {
       value = fieldConfig.default;
     }
     
-    // Apply filters
     if (value !== null && fieldConfig.filters && fieldConfig.filters.length > 0) {
-      value = this.filterEngine.applyFilters(value, fieldConfig.filters);
+      value = this.filterEngine.applyFilters(value, this.renderFilterArgs(fieldConfig.filters, config, variables));
     }
-    
-    // Final template processing for any {{ .Config.X }} that might remain
-    if (value && typeof value === 'string') {
-      value = value.replace(/\{\{\s*\.Config\.(\w+)\s*\}\}/g, (match, configKey) => {
-        return config[configKey] || '';
-      });
+
+    if (value && typeof value === 'string' && value.includes('{{')) {
+      value = this.processTemplateInValue(value, config, variables);
     }
-    
+
+    if (this.shouldResolveUrl(fieldConfig, value)) {
+      value = this.makeAbsoluteURL(value, baseUrl);
+    }
+
     return value;
+  }
+
+  shouldResolveUrl(fieldConfig, value) {
+    if (!value || typeof value !== 'string' || !fieldConfig?.attribute) return false;
+    if (fieldConfig.attribute !== 'href' && fieldConfig.attribute !== 'src') return false;
+    return /^(https?:)?\/\//i.test(value) || value.startsWith('/') || value.startsWith('magnet:');
+  }
+
+  renderFilterArgs(filters, config, variables) {
+    return filters.map((filter) => {
+      if (!filter) return filter;
+      const args = Array.isArray(filter.args)
+        ? filter.args
+        : (filter.args === undefined || filter.args === null ? [] : [filter.args]);
+      return {
+        ...filter,
+        args: args.map((arg) => this.processTemplateInValue(arg, config, variables)),
+      };
+    });
   }
 
   /**
@@ -343,20 +395,44 @@ class CardigannParser {
       selector = templateEngine.process(selector, { Config: config });
     }
     
+    if (rowsConfig.count?.selector) {
+      const count = Number(this.getJSONValue(jsonData, rowsConfig.count.selector));
+      if (Number.isFinite(count) && count < 1) return [];
+    }
+
     // Extract rows from JSON
     let rows = this.extractJSONRows(jsonData, { ...rowsConfig, selector });
     
     if (!Array.isArray(rows) || rows.length === 0) {
       return [];
     }
+
+    const expanded = [];
+    for (const parent of rows) {
+      if (!rowsConfig.attribute) {
+        expanded.push({ row: parent, parent });
+        continue;
+      }
+      const child = parent && typeof parent === 'object' ? parent[rowsConfig.attribute] : undefined;
+      if (child == null) {
+        if (rowsConfig.missingAttributeEqualsNoResults) continue;
+        expanded.push({ row: parent, parent });
+        continue;
+      }
+      if (rowsConfig.multiple && Array.isArray(child)) {
+        for (const item of child) expanded.push({ row: item, parent });
+      } else {
+        expanded.push({ row: child, parent });
+      }
+    }
     
     const results = [];
     
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < expanded.length; i++) {
       try {
-        const row = rows[i];
-        const result = this.parseJSONRow(row, fieldsConfig, baseUrl);
-        if (result) {
+        const { row, parent } = expanded[i];
+        const result = this.parseJSONRow(row, fieldsConfig, baseUrl, config, parent);
+        if (result && !this.shouldSkipRow(result, rowsConfig.filters, {})) {
           results.push(result);
         }
       } catch (error) {
@@ -372,7 +448,7 @@ class CardigannParser {
    */
   extractJSONRows(jsonData, rowsConfig) {
     // If rowsConfig is a string, it's the selector
-    const selector = typeof rowsConfig === 'string' ? rowsConfig : rowsConfig.selector;
+    let selector = typeof rowsConfig === 'string' ? rowsConfig : rowsConfig.selector;
     
     if (!selector) {
       // If no selector, assume the data is already an array
@@ -383,6 +459,9 @@ class CardigannParser {
     if (selector === '$') {
       return Array.isArray(jsonData) ? jsonData : [jsonData];
     }
+    if (selector.startsWith('$.')) {
+      selector = selector.slice(2);
+    }
     
     // Navigate JSON path
     return this.getJSONValue(jsonData, selector) || [];
@@ -391,40 +470,66 @@ class CardigannParser {
   /**
    * Parse a single JSON row
    */
-  parseJSONRow(row, fieldsConfig, baseUrl) {
+  parseJSONRow(row, fieldsConfig, baseUrl, config = {}, parent = null) {
     const data = {};
-    
-    for (const [fieldName, fieldConfig] of Object.entries(fieldsConfig)) {
+    const variables = {};
+
+    for (const [fullFieldName, fieldConfig] of Object.entries(fieldsConfig)) {
+      const fieldName = String(fullFieldName).split('|')[0];
       try {
-        const value = this.extractJSONField(row, fieldConfig, baseUrl);
+        const value = this.extractJSONField(row, fieldConfig, baseUrl, config, variables, parent);
         data[fieldName] = value;
+        variables[`.Result.${fieldName}`] = value;
       } catch (error) {
         console.error(`Error extracting JSON field ${fieldName}:`, error.message);
         data[fieldName] = null;
       }
     }
-    
+
     return data;
   }
 
   /**
    * Extract a single field from a JSON row
    */
-  extractJSONField(row, fieldConfig, baseUrl) {
+  jsonTarget(row, parent, selector) {
+    const path = String(selector || '');
+    if (path.startsWith('..')) {
+      return { obj: parent || row, path: path.slice(2) };
+    }
+    return { obj: row, path };
+  }
+
+  extractJSONField(row, fieldConfig, baseUrl, config = {}, variables = {}, parent = null) {
     // Handle string selector (field name)
     if (typeof fieldConfig === 'string') {
-      return this.getJSONValue(row, fieldConfig);
+      const target = this.jsonTarget(row, parent, fieldConfig);
+      return this.getJSONValue(target.obj, target.path);
     }
     
     let value = null;
     
     // Handle static text
     if (fieldConfig.text !== undefined) {
-      value = fieldConfig.text;
+      value = this.processTemplateInValue(fieldConfig.text, config, variables);
+    } else if (fieldConfig.case) {
+      const target = fieldConfig.selector
+        ? this.jsonTarget(row, parent, fieldConfig.selector)
+        : { obj: row, path: '' };
+      const selected = target.path ? this.getJSONValue(target.obj, target.path) : null;
+      const text = selected == null ? '' : String(selected);
+      for (const [key, caseValue] of Object.entries(fieldConfig.case)) {
+        if (key === '*' || text === key) {
+          value = this.processTemplateInValue(caseValue, config, variables);
+          break;
+        }
+      }
     }
     // Handle selector (JSON path)
     else if (fieldConfig.selector) {
-      value = this.getJSONValue(row, fieldConfig.selector);
+      const target = this.jsonTarget(row, parent, fieldConfig.selector);
+      value = this.getJSONValue(target.obj, target.path);
+      if (Array.isArray(value)) value = value.map((item) => String(item)).join(',');
       
       // Make relative URLs absolute if this is a URL field
       if (value && typeof value === 'string' && fieldConfig.attribute && 
@@ -435,14 +540,14 @@ class CardigannParser {
     
     // Apply default if value is empty
     if ((value === null || value === undefined || value === '') && fieldConfig.default !== undefined) {
-      value = fieldConfig.default;
+      value = this.processTemplateInValue(fieldConfig.default, config, variables);
     }
     
     // Apply filters
     if (value !== null && fieldConfig.filters && fieldConfig.filters.length > 0) {
-      value = this.filterEngine.applyFilters(value, fieldConfig.filters);
+      value = this.filterEngine.applyFilters(value, this.renderFilterArgs(fieldConfig.filters, config, variables));
     }
-    
+
     return value;
   }
 
@@ -450,39 +555,32 @@ class CardigannParser {
    * Get value from JSON object using path notation
    */
   getJSONValue(obj, path) {
-    if (!obj || !path) return null;
-    
-    // Handle simple field names
-    if (!path.includes('.') && !path.includes('[')) {
-      return obj[path] !== undefined ? obj[path] : null;
-    }
-    
-    // Handle array indexing: items[0].name
-    const parts = path.split('.');
+    if (obj == null || path == null || path === '') return null;
+
+    let rest = String(path).trim();
+    if (rest === '$') return obj;
+    if (rest.startsWith('$.')) rest = rest.slice(2);
+    else if (rest.startsWith('$')) rest = rest.slice(1);
+
     let current = obj;
-    
-    for (const part of parts) {
-      if (!part) continue;
-      
-      // Handle array indexing
-      const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
-      if (arrayMatch) {
-        const [, field, index] = arrayMatch;
-        current = current[field];
-        if (Array.isArray(current)) {
-          current = current[parseInt(index)];
-        } else {
-          return null;
-        }
+    while (rest) {
+      if (rest.startsWith('.')) rest = rest.slice(1);
+      const indexMatch = rest.match(/^\[(\d+)\]/);
+      if (indexMatch) {
+        const index = Number(indexMatch[1]);
+        if (!Array.isArray(current) || index >= current.length) return null;
+        current = current[index];
+        rest = rest.slice(indexMatch[0].length);
       } else {
-        current = current[part];
+        const fieldMatch = rest.match(/^([A-Za-z0-9_$-]+)/);
+        if (!fieldMatch) return null;
+        current = current?.[fieldMatch[1]];
+        rest = rest.slice(fieldMatch[0].length);
       }
-      
-      if (current === undefined || current === null) {
-        return null;
-      }
+      if (current === undefined || current === null) return null;
+      if (rest && rest[0] !== '.' && rest[0] !== '[') return null;
     }
-    
+
     return current;
   }
 

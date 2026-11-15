@@ -42,6 +42,7 @@ class CardigannFilterEngine {
 
       // Misc
       'andmatch': this.andmatchFilter.bind(this),
+      'validfilename': this.validFilenameFilter.bind(this),
     };
   }
 
@@ -65,7 +66,9 @@ class CardigannFilterEngine {
       }
 
       try {
-        const args = filterConfig.args || [];
+        const args = Array.isArray(filterConfig.args)
+          ? filterConfig.args
+          : (filterConfig.args === undefined || filterConfig.args === null ? [] : [filterConfig.args]);
         result = filterFn(result, args);
       } catch (error) {
         console.error(`Filter error (${filterConfig.name}):`, error.message);
@@ -95,27 +98,29 @@ class CardigannFilterEngine {
     return value.replace(new RegExp(escaped, 'g'), String(replace || ''));
   }
 
+  compilePattern(pattern, flags = 'g') {
+    let source = String(pattern || '');
+    source = source.replace(/\(\?([ims]+)\)/g, (_, found) => {
+      for (const flag of found) {
+        if (!flags.includes(flag)) flags += flag;
+      }
+      return '';
+    });
+    return new RegExp(source, flags);
+  }
+
   re_replaceFilter(value, args) {
     const [pattern, replacement] = args;
     if (typeof value !== 'string') value = String(value);
     
     try {
-      // Handle regex flags (e.g., "(?i)" for case-insensitive)
       let flags = 'g';
       let cleanPattern = pattern;
-      
-      // Check for inline flags
-      if (pattern.startsWith('(?i)')) {
-        flags = 'gi';
-        cleanPattern = pattern.substring(4);
-      } else if (pattern.startsWith('(?m)')) {
-        flags = 'gm';
-        cleanPattern = pattern.substring(4);
-      }
-      
-      // Remove unsupported regex groups like (?:...) to make them simpler
-      // JavaScript doesn't need them the same way
-      cleanPattern = cleanPattern.replace(/\(\?:/g, '(');
+
+      // Go/.NET unicode classes are not valid in JavaScript.
+      cleanPattern = cleanPattern
+        .replace(/\\p\{IsCyrillic\}/g, '\\p{Script=Cyrillic}')
+        .replace(/\\p\{IsLatin\}/g, '\\p{Script=Latin}');
 
       // Handle Unicode property escapes (e.g., \p{IsCJKUnifiedIdeographs})
       // Convert Go-style Unicode escapes to JavaScript equivalents
@@ -138,7 +143,7 @@ class CardigannFilterEngine {
         if (!flags.includes('u')) flags += 'u';
       }
 
-      const regex = new RegExp(cleanPattern, flags);
+      const regex = this.compilePattern(cleanPattern, flags);
       const result = value.replace(regex, String(replacement || ''));
       
       // Safety check: if replacement destroyed the entire string (left only dots/spaces), return original
@@ -164,7 +169,8 @@ class CardigannFilterEngine {
     if (typeof value !== 'string') value = String(value);
     const parts = value.split(String(delimiter || ' '));
     if (index !== undefined && index !== null) {
-      const idx = parseInt(index);
+      const parsed = parseInt(index);
+      const idx = parsed < 0 ? parts.length + parsed : parsed;
       return parts[idx] !== undefined ? parts[idx] : '';
     }
     return parts;
@@ -250,7 +256,7 @@ class CardigannFilterEngine {
     if (typeof value !== 'string') value = String(value);
     
     try {
-      const regex = new RegExp(pattern);
+      const regex = this.compilePattern(pattern, '');
       const match = value.match(regex);
       
       if (!match) return '';
@@ -438,10 +444,11 @@ class CardigannFilterEngine {
   // ==================== MISC FILTERS ====================
 
   andmatchFilter(value) {
-    // This filter is used in rows to filter results
-    // It's handled at the row level, not on individual values
-    // So we just return the value as-is here
     return value;
+  }
+
+  validFilenameFilter(value) {
+    return String(value || '').replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ').replace(/\s+/g, ' ').trim();
   }
 }
 
