@@ -42,7 +42,7 @@ interface Indexer {
   id?: number;
   name: string;
   protocol: "torrent" | "nzb";
-  privacy: "Private" | "Public";
+  privacy: "Private" | "Public" | "Semi-Private";
   priority: number;
   syncProfile: string;
   enabled: boolean;

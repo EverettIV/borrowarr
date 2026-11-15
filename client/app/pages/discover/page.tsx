@@ -59,6 +59,23 @@ interface CategoryItem {
   logo_path?: string | null;
 }
 
+interface TmdbProductionCompany {
+  id: number;
+  name: string;
+  logo_path: string | null;
+}
+
+interface TmdbMovieStudioSource {
+  popularity?: number;
+  production_companies?: TmdbProductionCompany[];
+}
+
+type MovieStudioFetchResult = {
+  movie: TmdbMovieStudioSource | null;
+  listIndex: number;
+  listPopularity: number;
+} | null;
+
 interface RecommendationRow {
   key: string;
   title: string;
@@ -738,25 +755,21 @@ const Discover = () => {
 
         const moviePromises = moviesRes.data.results
           .slice(0, 20)
-          .map((movie: any, listIndex: number) =>
+          .map((movie: { id: number; popularity?: number }, listIndex: number) =>
             axios
               .get(`${API_BASE_URL}/api/TMDB/movie/${movie.id}`)
-              .then((res) => ({
-                movie: res.data.movie as {
-                  popularity?: number;
-                  production_companies?: Array<{
-                    id: number;
-                    name: string;
-                    logo_path: string | null;
-                  }>;
-                } | null,
-                listIndex,
-                listPopularity: Number(movie.popularity) || 0,
-              }))
-              .catch(() => null),
+              .then(
+                (res): MovieStudioFetchResult => ({
+                  movie: (res.data.movie as TmdbMovieStudioSource | null) ?? null,
+                  listIndex,
+                  listPopularity: Number(movie.popularity) || 0,
+                }),
+              )
+              .catch((): MovieStudioFetchResult => null),
           );
 
-        const movieDetails = await Promise.all(moviePromises);
+        const movieDetails: MovieStudioFetchResult[] =
+          await Promise.all(moviePromises);
 
         movieDetails.forEach((entry) => {
           const movie = entry?.movie;

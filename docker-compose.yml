@@ -1,0 +1,39 @@
+name: borrowarr
+
+services:
+  borrowarr-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: borrowarr-server
+    restart: unless-stopped
+    ports:
+      - "3013:3013"
+    env_file:
+      - ./server/.env
+    environment:
+      NODE_ENV: production
+      PORT: "3013"
+      SQLITE_STORAGE_PATH: /app/data/database.sqlite
+    volumes:
+      - borrowarr-server-data:/app/data
+
+  borrowarr-client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        # Browser calls the API on the host-mapped port (not the Docker service name).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3013}
+    container_name: borrowarr-client
+    restart: unless-stopped
+    ports:
+      - "3012:3012"
+    environment:
+      NODE_ENV: production
+      PORT: "3012"
+    depends_on:
+      - borrowarr-server
+
+volumes:
+  borrowarr-server-data:

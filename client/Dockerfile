@@ -11,8 +11,8 @@ COPY package*.json ./
 # Use --legacy-peer-deps to handle HeroUI peer dependency conflicts
 RUN npm install --legacy-peer-deps
 
-# Copy the .env file first (for build time)
-COPY .env ./
+ARG NEXT_PUBLIC_API_URL=http://localhost:3013
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 # Copy the rest of your application files
 COPY . .
