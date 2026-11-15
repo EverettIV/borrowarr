@@ -406,19 +406,53 @@ exports.browseDirectories = async (req, res) => {
 
     try {
       const entries = await fs.readdir(browsePath, { withFileTypes: true });
-      
-      const directories = entries
-        .filter(entry => entry.isDirectory())
-        .map(entry => {
-          const entryPath = isWindowsUNC 
-            ? path.win32.join(browsePath, entry.name)
-            : path.join(browsePath, entry.name);
-          return {
+
+      const directories = [];
+      const symlinksToResolve = [];
+
+      for (const entry of entries) {
+        const entryPath = isWindowsUNC
+          ? path.win32.join(browsePath, entry.name)
+          : path.join(browsePath, entry.name);
+
+        if (entry.isDirectory()) {
+          directories.push({
             name: entry.name,
             path: entryPath,
-          };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
+            isSymlink: entry.isSymbolicLink(),
+          });
+        } else if (entry.isSymbolicLink()) {
+          symlinksToResolve.push({ entry, entryPath });
+        }
+      }
+
+      if (symlinksToResolve.length > 0) {
+        const resolved = await Promise.all(
+          symlinksToResolve.map(async ({ entry, entryPath }) => {
+            try {
+              const stats = await fs.stat(entryPath);
+              if (stats.isDirectory()) {
+                return {
+                  name: entry.name,
+                  path: entryPath,
+                  isSymlink: true,
+                };
+              }
+            } catch {
+              // Ignore broken symlinks or inaccessible entries
+            }
+            return null;
+          }),
+        );
+
+        for (const dir of resolved) {
+          if (dir) {
+            directories.push(dir);
+          }
+        }
+      }
+
+      directories.sort((a, b) => a.name.localeCompare(b.name));
 
       // Add parent directory option if not at root
       let parentPath = null;

@@ -122,7 +122,10 @@
 
     .modal-body {
       flex: 1;
-      overflow: auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
       padding: 20px 24px;
 
       .current-path {
@@ -165,21 +168,69 @@
         font-size: 0.9rem;
       }
 
+      .directory-filter {
+        width: 100%;
+        margin-bottom: 12px;
+        padding: 10px 14px;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        color: #fff;
+        font-size: 0.9rem;
+
+        &:focus {
+          outline: none;
+          border-color: rgba(99, 102, 241, 0.5);
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        &::placeholder {
+          color: rgba(255, 255, 255, 0.35);
+        }
+      }
+
       .directory-list {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: 4px;
+        flex: 1;
+        min-height: 120px;
+        max-height: min(50vh, 420px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+
+        &.is-refreshing {
+          opacity: 0.85;
+        }
+
+        .list-status {
+          position: sticky;
+          top: 0;
+          z-index: 1;
+          padding: 6px 10px;
+          margin-bottom: 4px;
+          font-size: 0.8rem;
+          color: #a5b4fc;
+          background: rgba(26, 26, 46, 0.92);
+          border-radius: 6px;
+          text-align: center;
+        }
 
         .directory-item {
           display: flex;
           align-items: center;
           gap: 12px;
-          padding: 12px 16px;
+          padding: 10px 14px;
           background: rgba(255, 255, 255, 0.03);
           border: 1px solid rgba(255, 255, 255, 0.05);
           border-radius: 8px;
           cursor: pointer;
-          transition: all 0.2s ease;
+          transition: background 0.15s ease, border-color 0.15s ease;
+          content-visibility: auto;
+          contain-intrinsic-size: auto 44px;
 
           &:hover {
             background: rgba(255, 255, 255, 0.08);
@@ -249,14 +300,23 @@
         background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
         color: #fff;
         box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        max-width: min(240px, 55vw);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
 
-        &:hover {
+        &:hover:not(:disabled) {
           transform: translateY(-2px);
           box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
         }
 
-        &:active {
+        &:active:not(:disabled) {
           transform: translateY(0);
+        }
+
+        &:disabled {
+          opacity: 0.6;
+          cursor: wait;
         }
       }
     }

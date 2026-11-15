@@ -466,7 +466,7 @@ const FileManagement = () => {
         }
         setMessage({
           type: "success",
-          text: `✓ ${type === "movie" ? "Movie" : "Series"} download directory is accessible`,
+          text: `${type === "movie" ? "Movie" : "Series"} download directory is accessible`,
         });
       }
     } catch (error: any) {
@@ -530,7 +530,7 @@ const FileManagement = () => {
         }
         setMessage({
           type: "success",
-          text: `✓ ${type === "movie" ? "Movie" : "Series"} media folder is accessible`,
+          text: `${type === "movie" ? "Movie" : "Series"} media folder is accessible`,
         });
       }
     } catch (error: any) {
@@ -671,7 +671,7 @@ const FileManagement = () => {
         }
         setMessage({
           type: "success",
-          text: `✓ ${type === "movie" ? "Movie" : "Series"} directory is accessible`,
+          text: `${type === "movie" ? "Movie" : "Series"} directory is accessible`,
         });
       }
     } catch (error: any) {
