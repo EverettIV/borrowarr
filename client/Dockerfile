@@ -7,9 +7,14 @@ WORKDIR /app
 # Copy package.json and package-lock.json
 COPY package*.json ./
 
+# Local deepmerge override (file:vendor/deepmerge) must exist before npm install
+COPY vendor ./vendor
+
 # Install dependencies (including dev dependencies needed for build)
 # Use --legacy-peer-deps to handle HeroUI peer dependency conflicts
-RUN npm install --legacy-peer-deps
+RUN npm install --legacy-peer-deps \
+  && (test -f node_modules/deepmerge/package.json || (rm -rf node_modules/deepmerge && cp -a vendor/deepmerge node_modules/deepmerge)) \
+  && node -e "require.resolve('deepmerge')"
 
 ARG NEXT_PUBLIC_API_URL=http://localhost:3013
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
