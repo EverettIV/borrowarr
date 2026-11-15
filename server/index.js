@@ -80,6 +80,12 @@ setTimeout(() => {
   initializeAllWatchers();
 }, 20000); // Wait 20 seconds after server starts
 
+// Completed download handling — poll download clients for grab tracking / import
+setTimeout(() => {
+  const { startCompletedDownloadScheduler } = require('./services/completedDownloadHandler');
+  startCompletedDownloadScheduler();
+}, 12000);
+
 app.get("/", (req, res) => {
   res.json({ app: "running" });
 });
@@ -97,6 +103,7 @@ app.use("/api/Cardigann", require("./routes/Cardigann"));
 app.use("/api/Settings", require("./routes/Settings"));
 app.use("/api/Favorites", require("./routes/Favorites"));
 app.use("/api/History", require("./routes/History"));
+app.use("/api/CompletedDownloads", require("./routes/CompletedDownloads"));
 app.use("/api/PlexConnection", require("./routes/PlexConnection"));
 app.use("/api/FeaturedLists", require("./routes/FeaturedLists"));
 app.use("/api/HiddenMedia", require("./routes/HiddenMedia"));

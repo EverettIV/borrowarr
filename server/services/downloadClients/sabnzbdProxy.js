@@ -309,6 +309,20 @@ class SabnzbdProxy {
       throw new Error(`Failed to add NZB to SABnzbd: ${error.message || 'Unknown error'}`);
     }
   }
+
+  /**
+   * Get active queue
+   */
+  async getQueue() {
+    return this.makeRequest({ mode: 'queue', limit: 250 });
+  }
+
+  /**
+   * Get recent history (completed / failed jobs)
+   */
+  async getHistory() {
+    return this.makeRequest({ mode: 'history', limit: 100 });
+  }
 }
 
 module.exports = SabnzbdProxy;

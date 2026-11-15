@@ -68,6 +68,11 @@ interface FileSettings {
   seriesWatcherDestination: string | null;
   watcherInterval: number;
   watcherAutoApprove: boolean;
+  completedDownloadHandlingEnabled: boolean;
+  completedDownloadHandlingImportEnabled: boolean;
+  completedDownloadCheckInterval: number;
+  completedDownloadImportMode: string;
+  completedDownloadRemoveFromClient: boolean;
 }
 
 interface PendingFile {
@@ -119,6 +124,11 @@ const DEFAULT_SETTINGS: FileSettings = {
   seriesWatcherDestination: null,
   watcherInterval: 30,
   watcherAutoApprove: false,
+  completedDownloadHandlingEnabled: true,
+  completedDownloadHandlingImportEnabled: true,
+  completedDownloadCheckInterval: 60,
+  completedDownloadImportMode: "hardlink",
+  completedDownloadRemoveFromClient: false,
 };
 
 const FileManagement = () => {
@@ -160,6 +170,7 @@ const FileManagement = () => {
     new Set([
       "directories",
       "downloadWatcher",
+      "completedDownloads",
       "movieNaming",
       "seriesNaming",
       "autoRename",
@@ -169,6 +180,14 @@ const FileManagement = () => {
   // Beta warning modal state
   const [showBetaWarning, setShowBetaWarning] = useState(false);
   const [pendingAutoRenameEnable, setPendingAutoRenameEnable] = useState(false);
+
+  const [cdhStatus, setCdhStatus] = useState<{
+    activeDownloads: number;
+    awaitingImport: number;
+    importMode: string;
+    checkIntervalSeconds: number;
+  } | null>(null);
+  const [refreshingCdh, setRefreshingCdh] = useState(false);
 
   // Download Watcher state
   const [watcherStatus, setWatcherStatus] = useState<{
@@ -237,8 +256,16 @@ const FileManagement = () => {
     if (user) {
       fetchSettings();
       fetchWatcherStatus();
+      fetchCdhStatus();
     }
   }, [user]);
+
+  useEffect(() => {
+    if (settings.completedDownloadHandlingEnabled) {
+      const interval = setInterval(fetchCdhStatus, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [settings.completedDownloadHandlingEnabled]);
 
   // Periodically refresh watcher status when enabled
   useEffect(() => {
@@ -292,6 +319,16 @@ const FileManagement = () => {
         // Ensure numeric fields have defaults
         watcherInterval: response.data.watcherInterval ?? 30,
         autoRenameInterval: response.data.autoRenameInterval ?? 60,
+        completedDownloadHandlingEnabled:
+          response.data.completedDownloadHandlingEnabled ?? true,
+        completedDownloadHandlingImportEnabled:
+          response.data.completedDownloadHandlingImportEnabled ?? true,
+        completedDownloadCheckInterval:
+          response.data.completedDownloadCheckInterval ?? 60,
+        completedDownloadImportMode:
+          response.data.completedDownloadImportMode ?? "hardlink",
+        completedDownloadRemoveFromClient:
+          response.data.completedDownloadRemoveFromClient ?? false,
       };
 
       setSettings(loadedSettings);
@@ -305,6 +342,49 @@ const FileManagement = () => {
         text: "Failed to load settings. Using defaults.",
       });
       setLoading(false);
+    }
+  };
+
+  const fetchCdhStatus = async () => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      const response = await axios.get(
+        `${API_BASE_URL}/api/CompletedDownloads/status`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setCdhStatus({
+        activeDownloads: response.data.activeDownloads ?? 0,
+        awaitingImport: response.data.awaitingImport ?? 0,
+        importMode: response.data.importMode ?? "hardlink",
+        checkIntervalSeconds: response.data.checkIntervalSeconds ?? 60,
+      });
+    } catch (error) {
+      console.error("Error fetching CDH status:", error);
+    }
+  };
+
+  const triggerCdhRefresh = async () => {
+    setRefreshingCdh(true);
+    try {
+      const token = localStorage.getItem("accessToken");
+      await axios.post(
+        `${API_BASE_URL}/api/CompletedDownloads/refresh`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      await fetchCdhStatus();
+      setMessage({
+        type: "success",
+        text: "Polled download clients for tracked grabs",
+      });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: any) {
+      setMessage({
+        type: "error",
+        text: error.response?.data?.error || "CDH refresh failed",
+      });
+    } finally {
+      setRefreshingCdh(false);
     }
   };
 
@@ -581,6 +661,16 @@ const FileManagement = () => {
         autoRename: settings.autoRename ?? false,
         autoRenameInterval: settings.autoRenameInterval || 60,
         autoRenameWarningShown: settings.autoRenameWarningShown ?? false,
+        completedDownloadHandlingEnabled:
+          settings.completedDownloadHandlingEnabled ?? true,
+        completedDownloadHandlingImportEnabled:
+          settings.completedDownloadHandlingImportEnabled ?? true,
+        completedDownloadCheckInterval:
+          settings.completedDownloadCheckInterval || 60,
+        completedDownloadImportMode:
+          settings.completedDownloadImportMode || "hardlink",
+        completedDownloadRemoveFromClient:
+          settings.completedDownloadRemoveFromClient ?? false,
       };
 
       const response = await axios.put(
@@ -1193,6 +1283,204 @@ const FileManagement = () => {
                     </Button>
                   </div>
                 </div>
+              </CardBody>
+            )}
+          </Card>
+
+          {/* Completed Download Handling (client-tracked grabs) */}
+          <Card className="border border-violet-500/30 bg-gradient-to-r from-violet-500/5 to-fuchsia-500/5">
+            <CardHeader
+              className="cursor-pointer hover:bg-violet-500/10 transition-colors"
+              onClick={() => toggleSection("completedDownloads")}
+            >
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-3">
+                  <Download className="text-violet-500" size={24} />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-lg font-semibold">
+                        Completed Download Handling
+                      </h2>
+                      <Chip color="secondary" size="sm" variant="flat">
+                        CLIENT API
+                      </Chip>
+                    </div>
+                    <p className="text-sm text-default-500">
+                      Track grabs via your download client, then import into the
+                      library (Sonarr/Radarr-style)
+                    </p>
+                  </div>
+                </div>
+                {expandedSections.has("completedDownloads") ? (
+                  <ChevronDown size={20} />
+                ) : (
+                  <ChevronRight size={20} />
+                )}
+              </div>
+            </CardHeader>
+            {expandedSections.has("completedDownloads") && (
+              <CardBody className="pt-0 space-y-5">
+                <div className="flex items-start gap-3 p-4 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                  <Info
+                    className="text-violet-500 flex-shrink-0 mt-0.5"
+                    size={20}
+                  />
+                  <p className="text-xs text-default-500">
+                    When you grab from BorrowArr, a History entry is linked to
+                    your download client. The server polls qBittorrent /
+                    SABnzbd / NZBGet (etc.) for completion, then imports to your
+                    movie/series directories. This is separate from the folder
+                    Download Watcher below.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
+                  <div>
+                    <p className="font-medium">Enable client tracking</p>
+                    <p className="text-xs text-default-500">
+                      Poll download clients for grabs sent from BorrowArr
+                    </p>
+                  </div>
+                  <Switch
+                    color="secondary"
+                    isSelected={settings.completedDownloadHandlingEnabled}
+                    onValueChange={(checked) =>
+                      setSettings({
+                        ...settings,
+                        completedDownloadHandlingEnabled: checked,
+                      })
+                    }
+                  />
+                </div>
+
+                {settings.completedDownloadHandlingEnabled && (
+                  <>
+                    <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
+                      <div>
+                        <p className="font-medium">Auto-import when complete</p>
+                        <p className="text-xs text-default-500">
+                          Second step: move/hardlink into library after client
+                          reports finished
+                        </p>
+                      </div>
+                      <Switch
+                        color="secondary"
+                        isSelected={
+                          settings.completedDownloadHandlingImportEnabled
+                        }
+                        onValueChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            completedDownloadHandlingImportEnabled: checked,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor="cdhInterval"
+                        >
+                          Poll interval (seconds)
+                        </label>
+                        <Input
+                          id="cdhInterval"
+                          max="3600"
+                          min="30"
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              completedDownloadCheckInterval: Math.max(
+                                30,
+                                parseInt(e.target.value, 10) || 60,
+                              ),
+                            })
+                          }
+                          type="number"
+                          value={String(
+                            settings.completedDownloadCheckInterval || 60,
+                          )}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label
+                          className="text-sm font-medium"
+                          htmlFor="cdhMode"
+                        >
+                          Import mode
+                        </label>
+                        <select
+                          className="w-full rounded-lg border border-content3 bg-content1 px-3 py-2 text-sm"
+                          id="cdhMode"
+                          onChange={(e) =>
+                            setSettings({
+                              ...settings,
+                              completedDownloadImportMode: e.target.value,
+                            })
+                          }
+                          value={settings.completedDownloadImportMode}
+                        >
+                          <option value="hardlink">
+                            Hardlink (keeps seeding)
+                          </option>
+                          <option value="copy">Copy</option>
+                          <option value="move">Move</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-4 rounded-lg border border-content3">
+                      <div>
+                        <p className="font-medium">
+                          Remove completed from client (Usenet)
+                        </p>
+                        <p className="text-xs text-default-500">
+                          Torrents are never removed automatically (seeding)
+                        </p>
+                      </div>
+                      <Switch
+                        isSelected={settings.completedDownloadRemoveFromClient}
+                        onValueChange={(checked) =>
+                          setSettings({
+                            ...settings,
+                            completedDownloadRemoveFromClient: checked,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-content2 border border-content3">
+                      <div className="text-sm text-default-500">
+                        {cdhStatus ? (
+                          <>
+                            <strong>{cdhStatus.activeDownloads}</strong> active
+                            · <strong>{cdhStatus.awaitingImport}</strong>{" "}
+                            awaiting import · poll every{" "}
+                            <strong>
+                              {cdhStatus.checkIntervalSeconds || 60}s
+                            </strong>
+                          </>
+                        ) : (
+                          "Save settings, then refresh to poll clients"
+                        )}
+                      </div>
+                      <Button
+                        color="secondary"
+                        isLoading={refreshingCdh}
+                        onPress={triggerCdhRefresh}
+                        size="sm"
+                        startContent={
+                          !refreshingCdh && <RefreshCw size={14} />
+                        }
+                        variant="flat"
+                      >
+                        Refresh tracked downloads
+                      </Button>
+                    </div>
+                  </>
+                )}
               </CardBody>
             )}
           </Card>

@@ -83,7 +83,7 @@ const History = sequelize.define(
     },
     // Status tracking
     status: {
-      type: DataTypes.ENUM('grabbed', 'downloading', 'completed', 'failed'),
+      type: DataTypes.ENUM('grabbed', 'downloading', 'completed', 'failed', 'imported'),
       allowNull: false,
       defaultValue: 'grabbed',
     },
@@ -101,6 +101,35 @@ const History = sequelize.define(
       type: DataTypes.STRING,
       allowNull: true,
       comment: 'ID from the download client (e.g., torrent hash, NZB ID)',
+    },
+    downloadClientRecordId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'DownloadClients table primary key used for this grab',
+    },
+    clientCategory: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Category/label sent to the client on grab',
+    },
+    outputPath: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      comment: 'Path reported by client when download completes',
+    },
+    downloadProgress: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    importStatus: {
+      type: DataTypes.STRING,
+      allowNull: false,
+      defaultValue: 'none',
+      comment: 'none | pending | importing | imported | failed | blocked',
+    },
+    importError: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {

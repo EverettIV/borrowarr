@@ -112,6 +112,40 @@ const Settings = sequelize.define('Settings', {
     allowNull: false,
     defaultValue: true,
   },
+  // Completed Download Handling (Servarr-style CDH)
+  completedDownloadHandlingEnabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  completedDownloadHandlingImportEnabled: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: true,
+  },
+  completedDownloadCheckInterval: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    defaultValue: 60,
+    comment: 'Seconds between client API polls for tracked downloads',
+  },
+  completedDownloadImportMode: {
+    type: DataTypes.STRING,
+    allowNull: false,
+    defaultValue: 'hardlink',
+    comment: 'hardlink | copy | move',
+  },
+  completedDownloadRemoveFromClient: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false,
+  },
+  remotePathMappings: {
+    type: DataTypes.JSON,
+    allowNull: true,
+    defaultValue: [],
+    comment: '[{ host: "/downloads", remote: "/data/downloads" }] Docker path translation',
+  },
 }, {
   tableName: 'Settings',
   timestamps: true,

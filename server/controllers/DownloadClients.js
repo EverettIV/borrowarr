@@ -109,64 +109,36 @@ async function testDownloadClient(implementation, settings) {
   }
 }
 
-/**
- * Get proxy instance for client implementation
- */
+const { getClientProxy: getClientProxyFromFactory } = require('../services/downloadClients/clientProxyFactory');
+
 function getClientProxy(implementation, settings) {
+  try {
+    return getClientProxyFromFactory(implementation, settings);
+  } catch (factoryError) {
     switch (implementation) {
-      case 'Deluge':
-        const DelugeProxy = require('../services/downloadClients/delugeProxy');
-      return new DelugeProxy(settings);
-      case 'Sabnzbd':
-        const SabnzbdProxy = require('../services/downloadClients/sabnzbdProxy');
-      return new SabnzbdProxy(settings);
-    case 'QBittorrent':
-      const QBittorrentProxy = require('../services/downloadClients/qbittorrentProxy');
-      return new QBittorrentProxy(settings);
-    case 'Transmission':
-      const TransmissionProxy = require('../services/downloadClients/transmissionProxy');
-      return new TransmissionProxy(settings);
-    case 'RTorrent':
-      const RTorrentProxy = require('../services/downloadClients/rtorrentProxy');
-      return new RTorrentProxy(settings);
-    case 'Aria2':
-      const Aria2Proxy = require('../services/downloadClients/aria2Proxy');
-      return new Aria2Proxy(settings);
-    case 'UTorrent':
-      const UTorrentProxy = require('../services/downloadClients/utorrentProxy');
-      return new UTorrentProxy(settings);
-    case 'Vuze':
-      const VuzeProxy = require('../services/downloadClients/vuzeProxy');
-      return new VuzeProxy(settings);
-    case 'Flood':
-      const FloodProxy = require('../services/downloadClients/floodProxy');
-      return new FloodProxy(settings);
-    case 'Hadouken':
-      const HadoukenProxy = require('../services/downloadClients/hadoukenProxy');
-      return new HadoukenProxy(settings);
-    case 'FreeboxDownload':
-      const FreeboxProxy = require('../services/downloadClients/freeboxProxy');
-      return new FreeboxProxy(settings);
-    case 'TorrentBlackhole':
-      const TorrentBlackholeProxy = require('../services/downloadClients/torrentBlackholeProxy');
-      return new TorrentBlackholeProxy(settings);
-    case 'Nzbget':
-      const NzbgetProxy = require('../services/downloadClients/nzbgetProxy');
-      return new NzbgetProxy(settings);
-    case 'NzbVortex':
-      const NzbVortexProxy = require('../services/downloadClients/nzbvortexProxy');
-      return new NzbVortexProxy(settings);
-    case 'Pneumatic':
-      const PneumaticProxy = require('../services/downloadClients/pneumaticProxy');
-      return new PneumaticProxy(settings);
-    case 'UsenetBlackhole':
-      const UsenetBlackholeProxy = require('../services/downloadClients/usenetBlackholeProxy');
-      return new UsenetBlackholeProxy(settings);
-    case 'DownloadStation':
-      const DownloadStationProxy = require('../services/downloadClients/downloadstationProxy');
-      return new DownloadStationProxy(settings);
+      case 'Hadouken': {
+        const HadoukenProxy = require('../services/downloadClients/hadoukenProxy');
+        return new HadoukenProxy(settings);
+      }
+      case 'FreeboxDownload': {
+        const FreeboxProxy = require('../services/downloadClients/freeboxProxy');
+        return new FreeboxProxy(settings);
+      }
+      case 'TorrentBlackhole': {
+        const TorrentBlackholeProxy = require('../services/downloadClients/torrentBlackholeProxy');
+        return new TorrentBlackholeProxy(settings);
+      }
+      case 'UsenetBlackhole': {
+        const UsenetBlackholeProxy = require('../services/downloadClients/usenetBlackholeProxy');
+        return new UsenetBlackholeProxy(settings);
+      }
+      case 'DownloadStation': {
+        const DownloadStationProxy = require('../services/downloadClients/downloadstationProxy');
+        return new DownloadStationProxy(settings);
+      }
       default:
-      throw new Error(`Client ${implementation} not yet implemented`);
+        throw factoryError;
+    }
   }
 }
 
@@ -609,10 +581,20 @@ exports.grabRelease = async (req, res) => {
         status: 'grabbed',
         source: source || 'Manual',
         downloadClient: clientData.name,
-        downloadClientId: result || null,
+        downloadClientId: result ? String(result) : null,
+        downloadClientRecordId: clientData.id,
+        clientCategory: categoryToUse || null,
+        importStatus: 'none',
       });
 
       console.log('[DownloadClients] ✅ History entry created successfully:', historyEntry.id);
+
+      try {
+        const { triggerRefreshAfterGrab } = require('../services/completedDownloadHandler');
+        triggerRefreshAfterGrab(req.userId);
+      } catch (cdhErr) {
+        console.warn('[DownloadClients] CDH post-grab refresh skipped:', cdhErr.message);
+      }
     } catch (historyError) {
       console.error('[DownloadClients] ❌ Failed to log history:', historyError.message);
       console.error('[DownloadClients] Error stack:', historyError.stack);
