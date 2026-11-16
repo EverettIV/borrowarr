@@ -58,7 +58,7 @@ const Users = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [publicRegistrationEnabled, setPublicRegistrationEnabled] =
-    useState(true);
+    useState(false);
   const [loadingSettings, setLoadingSettings] = useState(true);
 
   // Modal state
@@ -109,7 +109,7 @@ const Users = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       setPublicRegistrationEnabled(
-        response.data.publicRegistrationEnabled ?? true,
+        response.data.publicRegistrationEnabled ?? false,
       );
     } catch (error: any) {
       if (error.response?.status !== 403) {

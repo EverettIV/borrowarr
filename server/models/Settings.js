@@ -265,7 +265,7 @@ const Settings = sequelize.define('Settings', {
   publicRegistrationEnabled: {
     type: DataTypes.BOOLEAN,
     allowNull: false,
-    defaultValue: true,
+    defaultValue: false,
   },
   // Completed Download Handling (CDH)
   completedDownloadHandlingEnabled: {

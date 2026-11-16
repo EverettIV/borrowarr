@@ -7,11 +7,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Lock, User, AlertCircle, ShieldX } from "lucide-react";
 import { Spinner } from "@heroui/react";
-import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
+import { fetchSetupStatus } from "@/lib/setupStatus";
 import "../../../styles/Register.scss";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 const Register = () => {
   const router = useRouter();
@@ -28,15 +26,12 @@ const Register = () => {
   useEffect(() => {
     const checkRegistrationStatus = async () => {
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/api/Settings/public-registration-status`,
-        );
-        setRegistrationEnabled(response.data.enabled);
-        setIsFirstRun(Boolean(response.data.isFirstRun));
+        const status = await fetchSetupStatus();
+        setRegistrationEnabled(status.enabled);
+        setIsFirstRun(status.isFirstRun);
       } catch (error) {
         console.error("Error checking registration status:", error);
-        // Default to enabled if there's an error
-        setRegistrationEnabled(true);
+        setRegistrationEnabled(false);
       } finally {
         setCheckingRegistration(false);
       }

@@ -43,6 +43,7 @@ app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 app.use(cors({
   origin: [
     "http://localhost:3012",
+    "http://127.0.0.1:3012",
     "https://beta.borrowarr.com",
     "http://beta.borrowarr.com"
   ],
@@ -62,8 +63,28 @@ require("./models/ParentalGuide");
 require("./models/MediaRequest");
 require("./models/ActivityLog");
 
-// Connect to database (this will sync all loaded models)
-connectDB();
+// Database must be ready before handling API requests (avoids false “not first run” on cold start).
+let dbReady = false;
+const dbReadyPromise = connectDB()
+  .then(() => {
+    dbReady = true;
+  })
+  .catch((error) => {
+    console.error("❌ Database failed to initialize:", error);
+    process.exit(1);
+  });
+
+app.use(async (req, res, next) => {
+  if (dbReady) {
+    return next();
+  }
+  try {
+    await dbReadyPromise;
+    return next();
+  } catch {
+    return res.status(503).json({ error: "Database is not ready" });
+  }
+});
 
 // Start monitoring service (after database connection)
 setTimeout(() => {
@@ -120,6 +141,8 @@ app.use("/api/MediaRequests", require("./routes/MediaRequests"));
 app.use("/api/CuratedLists", require("./routes/CuratedLists"));
 app.use("/api/ActivityLog", require("./routes/ActivityLog"));
 
-app.listen(PORT, () => {
-  console.log("✅ Listening on port " + PORT);
+dbReadyPromise.then(() => {
+  app.listen(PORT, () => {
+    console.log("✅ Listening on port " + PORT);
+  });
 });

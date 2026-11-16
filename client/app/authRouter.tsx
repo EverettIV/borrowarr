@@ -2,7 +2,6 @@
 
 import { useEffect, useState, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
 import {
   DEFAULT_AUTHENTICATED_ROUTE,
@@ -10,8 +9,7 @@ import {
   REGISTER_ROUTE,
   requiresAuthentication,
 } from "@/lib/authRoutes";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
+import { fetchSetupStatus } from "@/lib/setupStatus";
 
 const AuthRouter = ({ children }: { children: ReactNode }) => {
   const { user, loading } = useAuth();
@@ -19,28 +17,30 @@ const AuthRouter = ({ children }: { children: ReactNode }) => {
   const pathName = usePathname();
   const [setupLoading, setSetupLoading] = useState(true);
   const [isFirstRun, setIsFirstRun] = useState(false);
+  const [setupError, setSetupError] = useState(false);
 
   useEffect(() => {
     if (loading) return;
 
     if (user) {
       setSetupLoading(false);
+      setSetupError(false);
       return;
     }
 
     let cancelled = false;
 
     const loadSetupStatus = async () => {
+      setSetupError(false);
+      setSetupLoading(true);
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/api/Settings/public-registration-status`,
-        );
+        const status = await fetchSetupStatus();
         if (!cancelled) {
-          setIsFirstRun(Boolean(response.data?.isFirstRun));
+          setIsFirstRun(status.isFirstRun);
         }
       } catch {
         if (!cancelled) {
-          setIsFirstRun(false);
+          setSetupError(true);
         }
       } finally {
         if (!cancelled) {
@@ -68,15 +68,26 @@ const AuthRouter = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    if (isFirstRun && pathName !== REGISTER_ROUTE) {
-      router.replace(REGISTER_ROUTE);
+    if (isFirstRun) {
+      if (pathName === LOGIN_ROUTE) {
+        router.replace(REGISTER_ROUTE);
+        return;
+      }
+      if (pathName !== REGISTER_ROUTE) {
+        router.replace(REGISTER_ROUTE);
+        return;
+      }
+      return;
+    }
+
+    if (setupError) {
       return;
     }
 
     if (requiresAuthentication(pathName)) {
       router.replace(unauthEntry);
     }
-  }, [loading, setupLoading, user, isFirstRun, pathName, router]);
+  }, [loading, setupLoading, setupError, user, isFirstRun, pathName, router]);
 
   const awaitingFirstRunSetup =
     !user &&
@@ -84,6 +95,41 @@ const AuthRouter = ({ children }: { children: ReactNode }) => {
     !setupLoading &&
     isFirstRun &&
     pathName !== REGISTER_ROUTE;
+
+  const reloadSetupStatus = () => {
+    setSetupLoading(true);
+    setSetupError(false);
+    void fetchSetupStatus()
+      .then((status) => {
+        setIsFirstRun(status.isFirstRun);
+      })
+      .catch(() => {
+        setSetupError(true);
+      })
+      .finally(() => {
+        setSetupLoading(false);
+      });
+  };
+
+  if (setupError && !user && !loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <p className="text-foreground/80">
+            Could not reach the BorrowArr server. Make sure the API is running
+            and try again.
+          </p>
+          <button
+            className="px-4 py-2 rounded-lg bg-secondary text-secondary-foreground font-medium"
+            onClick={reloadSetupStatus}
+            type="button"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || setupLoading || awaitingFirstRunSetup) {
     return (

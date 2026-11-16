@@ -159,6 +159,13 @@ exports.register = async (req, res) => {
       permissions: isFirstUser ? superAdminPermissions : defaultPermissions,
     });
 
+    if (isFirstUser) {
+      await Settings.create({
+        userId: user.id,
+        publicRegistrationEnabled: false,
+      });
+    }
+
     // Generate tokens
     const { accessToken, refreshToken } = generateTokens(user.id);
 

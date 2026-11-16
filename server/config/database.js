@@ -217,6 +217,7 @@ const connectDB = async () => {
     await ensureSQLiteSchemaPatches();
   } catch (error) {
     console.error('❌ Unable to connect to the database:', error);
+    throw error;
   }
 };
 

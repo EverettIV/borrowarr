@@ -1,7 +1,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import axios from "axios";
 import { Spinner } from "@heroui/react";
+import { fetchSetupStatus } from "@/lib/setupStatus";
 import { Button } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Card, CardBody } from "@heroui/react";
@@ -11,8 +11,6 @@ import { User, Lock, AlertCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import "../../../styles/Login.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
-
 const Login = () => {
   const router = useRouter();
   const { login } = useAuth();
@@ -21,21 +19,24 @@ const Login = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [checkingSetup, setCheckingSetup] = useState(true);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     const verifySetup = async () => {
       try {
-        const response = await axios.get(
-          `${API_BASE_URL}/api/Settings/public-registration-status`,
-        );
-        if (!cancelled && response.data?.isFirstRun) {
-          router.replace("/pages/register");
+        const status = await fetchSetupStatus();
+        if (!cancelled) {
+          if (status.isFirstRun) {
+            router.replace("/pages/register");
+            return;
+          }
+          setRegistrationEnabled(status.enabled);
+          setCheckingSetup(false);
         }
       } catch {
-        // AuthRouter handles routing if this check fails
-      } finally {
+        // AuthRouter shows a retry screen if setup status cannot be loaded
         if (!cancelled) {
           setCheckingSetup(false);
         }
@@ -143,17 +144,19 @@ const Login = () => {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
-              <p className="text-sm text-foreground/60">
-                Don't have an account?{" "}
-                <Link
-                  className="text-secondary hover:text-secondary-600 font-medium transition-colors"
-                  href="/pages/register"
-                >
-                  Sign Up
-                </Link>
-              </p>
-            </div>
+            {registrationEnabled && (
+              <div className="mt-6 text-center">
+                <p className="text-sm text-foreground/60">
+                  Don&apos;t have an account?{" "}
+                  <Link
+                    className="text-secondary hover:text-secondary-600 font-medium transition-colors"
+                    href="/pages/register"
+                  >
+                    Sign Up
+                  </Link>
+                </p>
+              </div>
+            )}
           </CardBody>
         </Card>
       </div>
