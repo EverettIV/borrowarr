@@ -1,5 +1,7 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
+import { Spinner } from "@heroui/react";
 import { Button } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Card, CardBody } from "@heroui/react";
@@ -9,6 +11,8 @@ import { User, Lock, AlertCircle } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import "../../../styles/Login.scss";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
+
 const Login = () => {
   const router = useRouter();
   const { login } = useAuth();
@@ -16,6 +20,34 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingSetup, setCheckingSetup] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const verifySetup = async () => {
+      try {
+        const response = await axios.get(
+          `${API_BASE_URL}/api/Settings/public-registration-status`,
+        );
+        if (!cancelled && response.data?.isFirstRun) {
+          router.replace("/pages/register");
+        }
+      } catch {
+        // AuthRouter handles routing if this check fails
+      } finally {
+        if (!cancelled) {
+          setCheckingSetup(false);
+        }
+      }
+    };
+
+    void verifySetup();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,11 +58,26 @@ const Login = () => {
       await login(username, password);
       router.push("/pages/account");
     } catch (err: any) {
+      if (err.setupRequired) {
+        router.replace("/pages/register");
+        return;
+      }
       setError(err.message || "Login failed");
     } finally {
       setLoading(false);
     }
   };
+
+  if (checkingSetup) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-4">
+          <Spinner color="secondary" size="lg" />
+          <p className="text-foreground/60">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">

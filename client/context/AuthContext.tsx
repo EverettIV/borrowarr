@@ -208,7 +208,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTokens(accessToken, refreshToken);
       setUser(user);
     } catch (error: any) {
-      throw new Error(error.response?.data?.error || "Login failed");
+      const message = error.response?.data?.error || "Login failed";
+      const authError = new Error(message) as Error & { setupRequired?: boolean };
+      if (error.response?.data?.setupRequired) {
+        authError.setupRequired = true;
+      }
+      throw authError;
     }
   };
 

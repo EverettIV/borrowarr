@@ -194,6 +194,14 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: "Username and password are required" });
     }
 
+    const userCount = await User.count();
+    if (userCount === 0) {
+      return res.status(403).json({
+        error: "No accounts exist yet. Create the first account to finish setup.",
+        setupRequired: true,
+      });
+    }
+
     // Find user by username first, optionally by email when provided
     const loginConditions = [{ username: normalizedLogin }];
     if (normalizedLogin.includes("@")) {

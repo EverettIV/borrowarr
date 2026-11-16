@@ -68,7 +68,7 @@ const AuthRouter = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    if (isFirstRun && pathName === LOGIN_ROUTE) {
+    if (isFirstRun && pathName !== REGISTER_ROUTE) {
       router.replace(REGISTER_ROUTE);
       return;
     }
@@ -78,7 +78,14 @@ const AuthRouter = ({ children }: { children: ReactNode }) => {
     }
   }, [loading, setupLoading, user, isFirstRun, pathName, router]);
 
-  if (loading || setupLoading) {
+  const awaitingFirstRunSetup =
+    !user &&
+    !loading &&
+    !setupLoading &&
+    isFirstRun &&
+    pathName !== REGISTER_ROUTE;
+
+  if (loading || setupLoading || awaitingFirstRunSetup) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
