@@ -1,6 +1,6 @@
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import axios from "axios";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 export type MonitorMoviePayload = {
   userId: string;
@@ -62,7 +62,7 @@ export async function addMovieToMonitor(
   token?: string | null,
 ): Promise<MonitorAddResult> {
   const response = await axios.post(
-    `${API_BASE_URL}/api/MonitoredMovies`,
+    `${getApiBaseUrl()}/api/MonitoredMovies`,
   {
     searchOnAdd: true,
     ...payload,
@@ -79,7 +79,7 @@ export async function addSeriesToMonitor(
   token?: string | null,
 ): Promise<MonitorAddResult> {
   const response = await axios.post(
-    `${API_BASE_URL}/api/MonitoredSeries`,
+    `${getApiBaseUrl()}/api/MonitoredSeries`,
   {
     searchOnAdd: true,
     ...payload,
@@ -93,7 +93,7 @@ export async function addSeriesToMonitor(
 
 export async function grabMonitoredMovie(movieId: number, token?: string | null) {
   const response = await axios.post(
-    `${API_BASE_URL}/api/MonitoredMovies/${movieId}/grab`,
+    `${getApiBaseUrl()}/api/MonitoredMovies/${movieId}/grab`,
     {},
     { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
   );
@@ -102,7 +102,7 @@ export async function grabMonitoredMovie(movieId: number, token?: string | null)
 
 export async function grabMonitoredSeries(seriesId: number, token?: string | null) {
   const response = await axios.post(
-    `${API_BASE_URL}/api/MonitoredSeries/${seriesId}/grab`,
+    `${getApiBaseUrl()}/api/MonitoredSeries/${seriesId}/grab`,
     {},
     { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
   );
@@ -111,7 +111,7 @@ export async function grabMonitoredSeries(seriesId: number, token?: string | nul
 
 export async function runMonitoringCycle(userId: string, token?: string | null) {
   const response = await axios.post(
-    `${API_BASE_URL}/api/MonitoredMovies/check-all?userId=${encodeURIComponent(userId)}`,
+    `${getApiBaseUrl()}/api/MonitoredMovies/check-all?userId=${encodeURIComponent(userId)}`,
     {},
     { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
   );

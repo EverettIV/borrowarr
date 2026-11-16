@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import "@/styles/Discover.scss";
 import { Button } from "@heroui/react";
@@ -30,7 +31,6 @@ import SideScrollMovieList from "@/components/SideScrollMovieList";
 import CategoryCarousel from "@/components/CategoryCarousel";
 import { useAuth } from "@/context/AuthContext";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const TMDB_BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/original";
 
@@ -254,7 +254,7 @@ const Discover = () => {
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Favorites`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Favorites`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -278,7 +278,7 @@ const Discover = () => {
       setLoadingRecommendations(true);
       const token = localStorage.getItem("accessToken");
       const response = await axios.get(
-        `${API_BASE_URL}/api/PlexConnection/recommendations`,
+        `${getApiBaseUrl()}/api/PlexConnection/recommendations`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -309,10 +309,10 @@ const Discover = () => {
       setLoadingTrending(true);
       setLoadingHero(true);
       const [trendingMoviesRes, trendingTVRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/api/TMDB/trending/movies`, {
+        axios.get(`${getApiBaseUrl()}/api/TMDB/trending/movies`, {
           params: { page: 1 },
         }),
-        axios.get(`${API_BASE_URL}/api/TMDB/trending/tv`, {
+        axios.get(`${getApiBaseUrl()}/api/TMDB/trending/tv`, {
           params: { page: 1 },
         }),
       ]);
@@ -352,7 +352,7 @@ const Discover = () => {
       // Fetch popular movies
       setLoadingPopularMovies(true);
       const popularMoviesRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/popular/movies`,
+        `${getApiBaseUrl()}/api/TMDB/popular/movies`,
         {
           params: { page: 1 },
         },
@@ -376,7 +376,7 @@ const Discover = () => {
       // Fetch popular series
       setLoadingPopularSeries(true);
       const popularSeriesRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/popular/tv`,
+        `${getApiBaseUrl()}/api/TMDB/popular/tv`,
         {
           params: { page: 1 },
         },
@@ -399,7 +399,7 @@ const Discover = () => {
       // Fetch top rated movies
       setLoadingTopRatedMovies(true);
       const topRatedMoviesRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/discover/movies`,
+        `${getApiBaseUrl()}/api/TMDB/discover/movies`,
         {
           params: {
             page: 1,
@@ -422,7 +422,7 @@ const Discover = () => {
       // Fetch top rated series
       setLoadingTopRatedSeries(true);
       const topRatedSeriesRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/discover/tv`,
+        `${getApiBaseUrl()}/api/TMDB/discover/tv`,
         {
           params: {
             page: 1,
@@ -445,7 +445,7 @@ const Discover = () => {
       // Fetch upcoming movies
       setLoadingUpcoming(true);
       const upcomingRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/upcoming/movies`,
+        `${getApiBaseUrl()}/api/TMDB/upcoming/movies`,
         {
           params: { page: 1 },
         },
@@ -464,7 +464,7 @@ const Discover = () => {
       // Fetch currently airing TV shows.
       setLoadingAiring(true);
       const airingRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/upcoming/tv`,
+        `${getApiBaseUrl()}/api/TMDB/upcoming/tv`,
         {
           params: { page: 1 },
         },
@@ -507,10 +507,10 @@ const Discover = () => {
       const nextPage = trendingPage + 1;
 
       const [trendingMoviesRes, trendingTVRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/api/TMDB/trending/movies`, {
+        axios.get(`${getApiBaseUrl()}/api/TMDB/trending/movies`, {
           params: { page: nextPage },
         }),
-        axios.get(`${API_BASE_URL}/api/TMDB/trending/tv`, {
+        axios.get(`${getApiBaseUrl()}/api/TMDB/trending/tv`, {
           params: { page: nextPage },
         }),
       ]);
@@ -550,7 +550,7 @@ const Discover = () => {
       const nextPage = popularMoviesPage + 1;
 
       const response = await axios.get(
-        `${API_BASE_URL}/api/TMDB/popular/movies`,
+        `${getApiBaseUrl()}/api/TMDB/popular/movies`,
         {
           params: { page: nextPage },
         },
@@ -582,7 +582,7 @@ const Discover = () => {
       setLoadingMorePopularSeries(true);
       const nextPage = popularSeriesPage + 1;
 
-      const response = await axios.get(`${API_BASE_URL}/api/TMDB/popular/tv`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/TMDB/popular/tv`, {
         params: { page: nextPage },
       });
 
@@ -613,7 +613,7 @@ const Discover = () => {
       const nextPage = topRatedMoviesPage + 1;
 
       const response = await axios.get(
-        `${API_BASE_URL}/api/TMDB/discover/movies`,
+        `${getApiBaseUrl()}/api/TMDB/discover/movies`,
         {
           params: {
             page: nextPage,
@@ -649,7 +649,7 @@ const Discover = () => {
       setLoadingMoreTopRatedSeries(true);
       const nextPage = topRatedSeriesPage + 1;
 
-      const response = await axios.get(`${API_BASE_URL}/api/TMDB/discover/tv`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/TMDB/discover/tv`, {
         params: {
           page: nextPage,
           sortBy: "vote_average.desc",
@@ -684,7 +684,7 @@ const Discover = () => {
       const nextPage = upcomingMoviesPage + 1;
 
       const response = await axios.get(
-        `${API_BASE_URL}/api/TMDB/upcoming/movies`,
+        `${getApiBaseUrl()}/api/TMDB/upcoming/movies`,
         {
           params: { page: nextPage },
         },
@@ -716,7 +716,7 @@ const Discover = () => {
       setLoadingMoreAiring(true);
       const nextPage = airingTodayPage + 1;
 
-      const response = await axios.get(`${API_BASE_URL}/api/TMDB/upcoming/tv`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/TMDB/upcoming/tv`, {
         params: { page: nextPage },
       });
 
@@ -746,7 +746,7 @@ const Discover = () => {
     try {
       // Fetch movie genres
       const movieGenresRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/genres`,
+        `${getApiBaseUrl()}/api/TMDB/genres`,
         {
           params: { type: "movie" },
         },
@@ -758,7 +758,7 @@ const Discover = () => {
       }
 
       // Fetch TV genres
-      const tvGenresRes = await axios.get(`${API_BASE_URL}/api/TMDB/genres`, {
+      const tvGenresRes = await axios.get(`${getApiBaseUrl()}/api/TMDB/genres`, {
         params: { type: "tv" },
       });
       if (tvGenresRes.data.success && tvGenresRes.data.genres) {
@@ -779,7 +779,7 @@ const Discover = () => {
       let movieResults = popularMovies;
       if (!movieResults?.length) {
         const moviesRes = await axios.get(
-          `${API_BASE_URL}/api/TMDB/popular/movies`,
+          `${getApiBaseUrl()}/api/TMDB/popular/movies`,
           {
             params: { page: 1 },
           },
@@ -804,7 +804,7 @@ const Discover = () => {
           .slice(0, 20)
           .map((movie: { id: number; popularity?: number }, listIndex: number) =>
             axios
-              .get(`${API_BASE_URL}/api/TMDB/movie/${movie.id}`)
+              .get(`${getApiBaseUrl()}/api/TMDB/movie/${movie.id}`)
               .then(
                 (res): MovieStudioFetchResult => ({
                   movie: (res.data.movie as TmdbMovieStudioSource | null) ?? null,
@@ -862,7 +862,7 @@ const Discover = () => {
 
       let tvResults = popularTv;
       if (!tvResults?.length) {
-        const tvRes = await axios.get(`${API_BASE_URL}/api/TMDB/popular/tv`, {
+        const tvRes = await axios.get(`${getApiBaseUrl()}/api/TMDB/popular/tv`, {
           params: { page: 1 },
         });
         if (tvRes.data.success && tvRes.data.results) {
@@ -878,7 +878,7 @@ const Discover = () => {
         // Get details for first few TV shows to extract networks
         const tvPromises = tvResults.slice(0, 10).map((show) =>
           axios
-            .get(`${API_BASE_URL}/api/TMDB/tv/${show.id}`)
+            .get(`${getApiBaseUrl()}/api/TMDB/tv/${show.id}`)
             .then((res) => res.data.tv)
             .catch(() => null),
         );
@@ -966,7 +966,7 @@ const Discover = () => {
       const token = localStorage.getItem("accessToken");
 
       if (isFavorited) {
-        await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+        await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           data: { tmdbId: heroMedia.id, mediaType },
         });
@@ -982,7 +982,7 @@ const Discover = () => {
           : heroMedia.posterUrl || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/Favorites`,
+          `${getApiBaseUrl()}/api/Favorites`,
           {
             tmdbId: heroMedia.id,
             mediaType,

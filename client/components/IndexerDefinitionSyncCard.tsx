@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useEffect, useState } from "react";
 import axios from "axios";
@@ -7,7 +8,6 @@ import { ChevronDown, ChevronRight, RefreshCw, Search } from "lucide-react";
 import { SectionInfoCallout } from "./SectionInfoCallout";
 import { ActivityLogPanel } from "./ActivityLogPanel";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 type DefinitionSyncState = {
   enabled: boolean;
@@ -83,13 +83,13 @@ export function IndexerDefinitionSyncCard({
   const [error, setError] = useState("");
 
   const load = async () => {
-    const response = await axios.get(`${API_BASE_URL}/api/Indexers/definitions/sync`);
+    const response = await axios.get(`${getApiBaseUrl()}/api/Indexers/definitions/sync`);
     setState(response.data);
     setIntervalHours(String(response.data.intervalHours || 24));
   };
 
   const loadCatalog = async () => {
-    const response = await axios.get(`${API_BASE_URL}/api/Indexers/definitions`);
+    const response = await axios.get(`${getApiBaseUrl()}/api/Indexers/definitions`);
     setRows(response.data.definitions || []);
     setTestedAt(response.data.testedAt || null);
   };
@@ -104,7 +104,7 @@ export function IndexerDefinitionSyncCard({
     setError("");
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/api/Indexers/definitions/test`,
+        `${getApiBaseUrl()}/api/Indexers/definitions/test`,
         {},
         { timeout: 180000 },
       );
@@ -145,7 +145,7 @@ export function IndexerDefinitionSyncCard({
     setError("");
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/api/Indexers/definitions/test/${encodeURIComponent(id)}`,
+        `${getApiBaseUrl()}/api/Indexers/definitions/test/${encodeURIComponent(id)}`,
         {},
         { timeout: 60000 },
       );
@@ -165,7 +165,7 @@ export function IndexerDefinitionSyncCard({
     setSaving(true);
     setError("");
     try {
-      const response = await axios.put(`${API_BASE_URL}/api/Indexers/definitions/sync`, patch);
+      const response = await axios.put(`${getApiBaseUrl()}/api/Indexers/definitions/sync`, patch);
       setState(response.data);
       setIntervalHours(String(response.data.intervalHours || 24));
     } catch (err: any) {
@@ -180,7 +180,7 @@ export function IndexerDefinitionSyncCard({
     setError("");
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/api/Indexers/definitions/sync/run`,
+        `${getApiBaseUrl()}/api/Indexers/definitions/sync/run`,
         {},
         { timeout: 180000 },
       );

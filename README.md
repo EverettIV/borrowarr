@@ -62,6 +62,15 @@ JWT secrets are auto-generated on first server start if left blank in `.env`.
 
 ## Quick start (Docker)
 
+Use **`docker-compose.yml`** for separate API + UI containers (default), or **`docker-compose.all-in-one.yml`** for a single container that runs both (same ports: 3012 UI, 3013 API). Both layouts share the **`borrowarr-server-data`** volume for SQLite, so you can switch compose files without losing the database.
+
+**Unraid / Docker Hub:** the all-in-one image is the supported layout. See [`unraid/README.md`](unraid/README.md) for Hub build steps and Community Apps template (`unraid/community-apps/`).
+
+```bash
+docker compose -f docker-compose.all-in-one.yml up -d --build
+docker compose -f docker-compose.all-in-one.yml logs -f borrowarr
+```
+
 ### 1. Clone, env, and start
 
 ```bash

@@ -1,13 +1,13 @@
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import axios from "axios";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 export type SetupStatus = {
   enabled: boolean;
   isFirstRun: boolean;
 };
 
-const SETUP_STATUS_URL = `${API_BASE_URL}/api/Settings/public-registration-status`;
+const SETUP_STATUS_URL = `${getApiBaseUrl()}/api/Settings/public-registration-status`;
 
 export async function fetchSetupStatus(
   maxAttempts = 10,

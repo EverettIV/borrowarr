@@ -1,13 +1,11 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
 import { Search } from "lucide-react";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w500";
 
@@ -59,7 +57,7 @@ export function RenameTmdbPickerModal({
     setError(null);
     try {
       const token = localStorage.getItem("accessToken");
-      const res = await axios.get(`${API_BASE_URL}/api/TMDB/search`, {
+      const res = await axios.get(`${getApiBaseUrl()}/api/TMDB/search`, {
         params: { query: trimmed, type: "movie", page: 1 },
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });

@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useState, useEffect } from "react";
 import axios from "axios";
@@ -22,7 +23,6 @@ import { PageContent, PageHeader } from "@/components/page-header";
 import { SectionInfoCallout } from "../../../components/SectionInfoCallout";
 import { ActivityLogPanel } from "../../../components/ActivityLogPanel";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 const CHECK_INTERVAL_DEFAULT_SEC = 300; // 5 minutes
 const CHECK_INTERVAL_MIN_SEC = 60;
@@ -92,7 +92,7 @@ const System = () => {
   const fetchSettings = async () => {
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Settings`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Settings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = response.data as Settings;
@@ -134,7 +134,7 @@ const System = () => {
       };
 
       const response = await axios.put(
-        `${API_BASE_URL}/api/Settings`,
+        `${getApiBaseUrl()}/api/Settings`,
         updateData,
         {
           headers: { Authorization: `Bearer ${token}` },

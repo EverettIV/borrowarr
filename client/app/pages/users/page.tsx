@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { Button } from "@heroui/react";
@@ -23,7 +24,6 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface UserPermissions {
   admin: boolean;
@@ -80,7 +80,7 @@ const Users = () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Users/read`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Users/read`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setUsers(response.data.data || []);
@@ -98,7 +98,7 @@ const Users = () => {
     try {
       setLoadingSettings(true);
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Settings`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Settings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setPublicRegistrationEnabled(
@@ -170,7 +170,7 @@ const Users = () => {
         }
 
         await axios.put(
-          `${API_BASE_URL}/api/Users/update/${editingUser.id}`,
+          `${getApiBaseUrl()}/api/Users/update/${editingUser.id}`,
           updateData,
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -178,7 +178,7 @@ const Users = () => {
       } else {
         // Create new user
         await axios.post(
-          `${API_BASE_URL}/api/Users/create`,
+          `${getApiBaseUrl()}/api/Users/create`,
           {
             ...formData,
             permissions: { ...formData.permissions, request: true },
@@ -208,7 +208,7 @@ const Users = () => {
 
     try {
       const token = localStorage.getItem("accessToken");
-      await axios.delete(`${API_BASE_URL}/api/Users/delete/${userId}`, {
+      await axios.delete(`${getApiBaseUrl()}/api/Users/delete/${userId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       showNotification("success", "User deleted successfully");
@@ -223,7 +223,7 @@ const Users = () => {
     try {
       const token = localStorage.getItem("accessToken");
       await axios.put(
-        `${API_BASE_URL}/api/Settings`,
+        `${getApiBaseUrl()}/api/Settings`,
         { publicRegistrationEnabled: enabled },
         { headers: { Authorization: `Bearer ${token}` } },
       );

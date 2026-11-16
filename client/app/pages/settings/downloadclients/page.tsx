@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -27,7 +28,6 @@ import { formatProtocolLabel } from "@/lib/formatProtocol";
 import { useAuth } from "@/context/AuthContext";
 import "../../../../styles/DownloadClients.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface DownloadClient {
   id?: number;
@@ -116,7 +116,7 @@ const DownloadClients = () => {
     try {
       setLoading(true);
       const response = await axios.get(
-        `${API_BASE_URL}/api/DownloadClients/read`,
+        `${getApiBaseUrl()}/api/DownloadClients/read`,
       );
       setClients(response.data.data || []);
     } catch (error) {
@@ -129,7 +129,7 @@ const DownloadClients = () => {
   const fetchAvailableClients = async () => {
     try {
       const response = await axios.get(
-        `${API_BASE_URL}/api/DownloadClients/available`,
+        `${getApiBaseUrl()}/api/DownloadClients/available`,
       );
       setAvailableClients({
         usenet: response.data.usenet || [],
@@ -212,8 +212,8 @@ const DownloadClients = () => {
 
       const response = await axios.post(
         editingClient?.id
-          ? `${API_BASE_URL}/api/DownloadClients/test/${editingClient.id}`
-          : `${API_BASE_URL}/api/DownloadClients/test`,
+          ? `${getApiBaseUrl()}/api/DownloadClients/test/${editingClient.id}`
+          : `${getApiBaseUrl()}/api/DownloadClients/test`,
         testData,
       );
 
@@ -238,12 +238,12 @@ const DownloadClients = () => {
     try {
       if (editingClient?.id) {
         await axios.put(
-          `${API_BASE_URL}/api/DownloadClients/update/${editingClient.id}`,
+          `${getApiBaseUrl()}/api/DownloadClients/update/${editingClient.id}`,
           formData,
         );
       } else {
         await axios.post(
-          `${API_BASE_URL}/api/DownloadClients/create`,
+          `${getApiBaseUrl()}/api/DownloadClients/create`,
           formData,
         );
       }
@@ -262,7 +262,7 @@ const DownloadClients = () => {
     if (!confirm("Are you sure you want to delete this download client?"))
       return;
     try {
-      await axios.delete(`${API_BASE_URL}/api/DownloadClients/delete/${id}`);
+      await axios.delete(`${getApiBaseUrl()}/api/DownloadClients/delete/${id}`);
       await fetchClients();
     } catch (error) {
       console.error("Error deleting download client:", error);
@@ -277,7 +277,7 @@ const DownloadClients = () => {
       setTestResults({});
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/test-all`,
+        `${getApiBaseUrl()}/api/DownloadClients/test-all`,
       );
 
       if (response.data.success && response.data.results) {
@@ -676,7 +676,7 @@ const DownloadClients = () => {
                             onValueChange={async (enabled) => {
                               try {
                                 await axios.put(
-                                  `${API_BASE_URL}/api/DownloadClients/update/${client.id}`,
+                                  `${getApiBaseUrl()}/api/DownloadClients/update/${client.id}`,
                                   {
                                     ...client,
                                     enabled,

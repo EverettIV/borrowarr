@@ -1,10 +1,10 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 /** Normalize title+year for matching (must match server) */
 export const normalizePlexKey = (
@@ -48,10 +48,10 @@ export function usePlexLibrary() {
         setLoading(true);
         const token = localStorage.getItem("accessToken");
         const [connRes, keysRes] = await Promise.all([
-          axios.get(`${API_BASE_URL}/api/PlexConnection`, {
+          axios.get(`${getApiBaseUrl()}/api/PlexConnection`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
-          axios.get(`${API_BASE_URL}/api/PlexConnection/library-keys`, {
+          axios.get(`${getApiBaseUrl()}/api/PlexConnection/library-keys`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);

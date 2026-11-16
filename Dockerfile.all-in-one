@@ -1,0 +1,50 @@
+# All-in-one image: Next.js UI + Express API (two Node processes via entrypoint).
+
+FROM node:20-alpine AS client-build
+WORKDIR /app/client
+
+RUN apk add --no-cache python3 make g++
+
+COPY client/package*.json ./
+COPY client/vendor ./vendor
+
+RUN npm install --legacy-peer-deps \
+  && (test -f node_modules/deepmerge/package.json || (rm -rf node_modules/deepmerge && cp -a vendor/deepmerge node_modules/deepmerge)) \
+  && node -e "require.resolve('deepmerge')"
+
+# Leave unset for Unraid/Docker Hub: UI uses same host :3013 at runtime (see client/lib/apiBaseUrl.ts).
+ARG NEXT_PUBLIC_API_URL=
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+COPY client/ .
+RUN npm run build
+
+FROM node:20-alpine AS server-build
+WORKDIR /app/server
+
+RUN apk add --no-cache python3 make g++
+
+COPY server/package*.json ./
+RUN npm install
+
+COPY server/ .
+
+FROM node:20-alpine
+
+RUN apk add --no-cache python3 make g++
+
+WORKDIR /app
+
+COPY --from=server-build /app/server ./server
+COPY --from=client-build /app/client ./client
+
+COPY docker/all-in-one-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV NODE_ENV=production
+ENV API_PORT=3013
+ENV CLIENT_PORT=3012
+
+EXPOSE 3012 3013
+
+ENTRYPOINT ["/entrypoint.sh"]

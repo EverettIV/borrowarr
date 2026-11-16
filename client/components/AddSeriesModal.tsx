@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -28,7 +29,6 @@ import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
 import LoginRequiredModal from "@/components/LoginRequiredModal";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const YOUTUBE_EMBED_URL = "https://www.youtube.com/embed/";
 const YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v=";
@@ -334,7 +334,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
       // Check indexers
       const indexersResponse = await axios.get(
-        `${API_BASE_URL}/api/Indexers/read`,
+        `${getApiBaseUrl()}/api/Indexers/read`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -346,7 +346,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
       // Check download clients
       const clientsResponse = await axios.get(
-        `${API_BASE_URL}/api/DownloadClients/read`,
+        `${getApiBaseUrl()}/api/DownloadClients/read`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -403,7 +403,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
     if (!user) return;
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Settings`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Settings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.data) {
@@ -640,7 +640,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       const tmdbId = media.id as number;
 
       const response = await axios.get(
-        `${API_BASE_URL}/api/TMDB/tv/${tmdbId}`,
+        `${getApiBaseUrl()}/api/TMDB/tv/${tmdbId}`,
       );
 
       if (response.data.success) {
@@ -675,7 +675,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       for (let i = 0; i <= numberOfSeasons; i++) {
         seasonPromises.push(
           axios
-            .get(`${API_BASE_URL}/api/TMDB/tv/${tvId}/season/${i}`)
+            .get(`${getApiBaseUrl()}/api/TMDB/tv/${tvId}/season/${i}`)
             .then((res) => (res.data.success ? res.data.season : null))
             .catch((err) => {
               console.error(`Error fetching season ${i}:`, err);
@@ -849,7 +849,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       );
 
       // Use the Search API endpoint to search for torrents - fetch all results
-      const torrentResponse = await axios.get(`${API_BASE_URL}/api/Search`, {
+      const torrentResponse = await axios.get(`${getApiBaseUrl()}/api/Search`, {
         params: {
           query: searchQuery,
           categoryIds: "5000", // TV shows category
@@ -954,7 +954,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
         user?.permissions?.auto_approve || user?.permissions?.admin;
 
       if (!hasAutoApprove) {
-        await axios.post(`${API_BASE_URL}/api/MediaRequests`, {
+        await axios.post(`${getApiBaseUrl()}/api/MediaRequests`, {
           mediaType: "series",
           tmdbId: media?.id || 0,
           title: media?.name || media?.title || torrent.title,
@@ -1024,7 +1024,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       );
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+        `${getApiBaseUrl()}/api/DownloadClients/grab`,
         downloadPayload,
       );
 
@@ -1110,7 +1110,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       );
 
       // Use the Search API endpoint to search for torrents - fetch all results
-      const torrentResponse = await axios.get(`${API_BASE_URL}/api/Search`, {
+      const torrentResponse = await axios.get(`${getApiBaseUrl()}/api/Search`, {
         params: {
           query: searchQuery,
           categoryIds: "5000", // TV shows category
@@ -1216,7 +1216,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       );
 
       // Use the Search API endpoint to search for torrents - fetch all results
-      const torrentResponse = await axios.get(`${API_BASE_URL}/api/Search`, {
+      const torrentResponse = await axios.get(`${getApiBaseUrl()}/api/Search`, {
         params: {
           query: searchQuery,
           categoryIds: "5000", // TV shows category
@@ -1344,7 +1344,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
         try {
           const torrentResponse = await axios.get(
-            `${API_BASE_URL}/api/Search`,
+            `${getApiBaseUrl()}/api/Search`,
             {
               params: {
                 query: searchQuery,
@@ -1463,7 +1463,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       );
 
       const downloadResponse = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+        `${getApiBaseUrl()}/api/DownloadClients/grab`,
         downloadPayload,
       );
 
@@ -1546,7 +1546,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
           : media.posterUrl || null;
 
         const requestResponse = await axios.post(
-          `${API_BASE_URL}/api/MediaRequests`,
+          `${getApiBaseUrl()}/api/MediaRequests`,
           {
             mediaType: "series",
             tmdbId: media.id,
@@ -1639,7 +1639,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
     try {
       const token = localStorage.getItem("accessToken"); // Fixed: use 'accessToken' not 'token';
-      const response = await axios.get(`${API_BASE_URL}/api/Favorites/check`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Favorites/check`, {
         params: {
           tmdbId: media.id,
           mediaType: "tv",
@@ -1670,7 +1670,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
       if (isFavorited) {
         // Remove from favorites
-        await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+        await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           data: {
             tmdbId: media.id,
@@ -1686,7 +1686,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
           : media.posterUrl || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/Favorites`,
+          `${getApiBaseUrl()}/api/Favorites`,
           {
             tmdbId: media.id,
             mediaType: "tv",
@@ -1720,7 +1720,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/HiddenMedia`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/HiddenMedia`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -1750,7 +1750,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       if (isHidden) {
         // Unhide
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/unhide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/unhide`,
           {
             tmdbId: media.id,
             mediaType: "series",
@@ -1767,7 +1767,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
         const posterPath = media.poster_path || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/hide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/hide`,
           {
             tmdbId: media.id,
             mediaType: "series",

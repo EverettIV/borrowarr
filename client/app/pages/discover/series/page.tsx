@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -31,7 +32,6 @@ import { useAuth } from "@/context/AuthContext";
 import { PlexBadge } from "@/components/PlexBadge";
 import { usePlexLibrary } from "@/hooks/usePlexLibrary";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface TMDBMedia {
   id: number;
@@ -223,7 +223,7 @@ const SeriesPage = () => {
       } else {
         setSelectedNetworkName(null);
         axios
-          .get(`${API_BASE_URL}/api/TMDB/network/${urlNetwork}`)
+          .get(`${getApiBaseUrl()}/api/TMDB/network/${urlNetwork}`)
           .then((response) => {
             if (response.data.success && response.data.network?.name) {
               setSelectedNetworkName(response.data.network.name);
@@ -255,7 +255,7 @@ const SeriesPage = () => {
       if (!isNaN(seriesId)) {
         // Fetch and open modal for this series
         axios
-          .get(`${API_BASE_URL}/api/TMDB/tv/${seriesId}`)
+          .get(`${getApiBaseUrl()}/api/TMDB/tv/${seriesId}`)
           .then((res) => {
             if (res.data.success && res.data.tv) {
               setSelectedMedia(res.data.tv);
@@ -361,7 +361,7 @@ const SeriesPage = () => {
   useEffect(() => {
     setLoadingGenres(true);
     axios
-      .get(`${API_BASE_URL}/api/TMDB/genres`, { params: { type: "tv" } })
+      .get(`${getApiBaseUrl()}/api/TMDB/genres`, { params: { type: "tv" } })
       .then((response) => {
         if (response.data.success) {
           setGenres(response.data.genres || []);
@@ -379,7 +379,7 @@ const SeriesPage = () => {
   useEffect(() => {
     setLoadingProviders(true);
     axios
-      .get(`${API_BASE_URL}/api/TMDB/watch/providers`, {
+      .get(`${getApiBaseUrl()}/api/TMDB/watch/providers`, {
         params: { region: watchRegion, type: "tv" },
       })
       .then((response) => {
@@ -403,7 +403,7 @@ const SeriesPage = () => {
     if (!token) return;
 
     axios
-      .get(`${API_BASE_URL}/api/Indexers/read`, {
+      .get(`${getApiBaseUrl()}/api/Indexers/read`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -425,7 +425,7 @@ const SeriesPage = () => {
     if (user) {
       const token = localStorage.getItem("accessToken");
       axios
-        .get(`${API_BASE_URL}/api/Favorites/ids?mediaType=tv`, {
+        .get(`${getApiBaseUrl()}/api/Favorites/ids?mediaType=tv`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         .then((response) => {
@@ -444,7 +444,7 @@ const SeriesPage = () => {
     if (user) {
       const token = localStorage.getItem("accessToken");
       axios
-        .get(`${API_BASE_URL}/api/HiddenMedia?mediaType=series`, {
+        .get(`${getApiBaseUrl()}/api/HiddenMedia?mediaType=series`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         .then((response) => {
@@ -503,12 +503,12 @@ const SeriesPage = () => {
 
         // If searching by person (cast member), use person TV shows endpoint
         if (selectedPersonId) {
-          endpoint = `${API_BASE_URL}/api/TMDB/person/${selectedPersonId}/tv`;
+          endpoint = `${getApiBaseUrl()}/api/TMDB/person/${selectedPersonId}/tv`;
           params.sortBy = paramSortBy;
         }
         // If searching, use search endpoint
         else if (paramQuery.trim()) {
-          endpoint = `${API_BASE_URL}/api/TMDB/search`;
+          endpoint = `${getApiBaseUrl()}/api/TMDB/search`;
           params.query = paramQuery.trim();
           // Get search type from URL or default to 'tv' for series page
           const urlType = searchParams.get("type");
@@ -519,7 +519,7 @@ const SeriesPage = () => {
           }
         } else {
           // Use discover endpoint with all filters
-          endpoint = `${API_BASE_URL}/api/TMDB/discover/tv`;
+          endpoint = `${getApiBaseUrl()}/api/TMDB/discover/tv`;
 
           // Add all filter parameters
           params.sortBy = paramSortBy;
@@ -644,7 +644,7 @@ const SeriesPage = () => {
           );
           const detailsPromises = batch.map((series) =>
             axios
-              .get(`${API_BASE_URL}/api/TMDB/tv/${series.id}`)
+              .get(`${getApiBaseUrl()}/api/TMDB/tv/${series.id}`)
               .then((res) => ({
                 tmdbId: series.id,
                 name: series.name,
@@ -691,7 +691,7 @@ const SeriesPage = () => {
           `🌐 Querying parental guide API with ${items.length} items...`,
         );
         const response = await axios
-          .post(`${API_BASE_URL}/api/ParentalGuide/check-batch`, {
+          .post(`${getApiBaseUrl()}/api/ParentalGuide/check-batch`, {
             items,
           })
           .catch((err) => {
@@ -826,7 +826,7 @@ const SeriesPage = () => {
         user?.permissions?.auto_approve || user?.permissions?.admin;
 
       if (!hasAutoApprove) {
-        await axios.post(`${API_BASE_URL}/api/MediaRequests`, {
+        await axios.post(`${getApiBaseUrl()}/api/MediaRequests`, {
           mediaType: "series",
           tmdbId: item.id,
           title,
@@ -854,7 +854,7 @@ const SeriesPage = () => {
 
       // Get TV show details including all seasons
       const tvDetailsResponse = await axios.get(
-        `${API_BASE_URL}/api/TMDB/tv/${item.id}`,
+        `${getApiBaseUrl()}/api/TMDB/tv/${item.id}`,
       );
       if (!tvDetailsResponse.data.success) {
         throw new Error("Failed to fetch TV show details");
@@ -868,7 +868,7 @@ const SeriesPage = () => {
       for (let i = 1; i <= numberOfSeasons; i++) {
         seasonPromises.push(
           axios
-            .get(`${API_BASE_URL}/api/TMDB/tv/${item.id}/season/${i}`)
+            .get(`${getApiBaseUrl()}/api/TMDB/tv/${item.id}/season/${i}`)
             .then((res) => (res.data.success ? res.data.season : null))
             .catch(() => null),
         );
@@ -962,7 +962,7 @@ const SeriesPage = () => {
 
       if (isFavorited) {
         // Remove from favorites
-        await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+        await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           data: {
             tmdbId: item.id,
@@ -982,7 +982,7 @@ const SeriesPage = () => {
           : item.posterUrl || null;
 
         const response = await axios.post(
-          `${API_BASE_URL}/api/Favorites`,
+          `${getApiBaseUrl()}/api/Favorites`,
           {
             tmdbId: item.id,
             mediaType: "tv",
@@ -1042,7 +1042,7 @@ const SeriesPage = () => {
       if (isHidden) {
         // Unhide
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/unhide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/unhide`,
           {
             tmdbId: item.id,
             mediaType: "series",
@@ -1062,7 +1062,7 @@ const SeriesPage = () => {
         const posterPath = item.poster_path || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/hide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/hide`,
           {
             tmdbId: item.id,
             mediaType: "series",

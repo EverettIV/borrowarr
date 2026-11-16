@@ -1,7 +1,5 @@
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import axios, { type AxiosRequestConfig } from "axios";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 let interceptorInstalled = false;
 
@@ -26,7 +24,7 @@ export function installTmdbAuthInterceptor(): void {
     const url = config.url || "";
     const isBorrowarrTmdb =
       url.includes("/api/TMDB") ||
-      (url.startsWith(API_BASE_URL) && url.includes("/api/TMDB"));
+      (url.startsWith(getApiBaseUrl()) && url.includes("/api/TMDB"));
     if (!isBorrowarrTmdb) return config;
 
     const token = getTmdbAccessToken();

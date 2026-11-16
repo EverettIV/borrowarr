@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -7,7 +8,6 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Film, ChevronLeft, Star } from "lucide-react";
 import axios from "axios";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface TMDBMedia {
   id: number;
@@ -42,8 +42,8 @@ const PopularPage = () => {
       try {
         const endpoint =
           type === "movies"
-            ? `${API_BASE_URL}/api/TMDB/popular/movies`
-            : `${API_BASE_URL}/api/TMDB/popular/tv`;
+            ? `${getApiBaseUrl()}/api/TMDB/popular/movies`
+            : `${getApiBaseUrl()}/api/TMDB/popular/tv`;
         const response = await axios.get(endpoint, { params: { page } });
         if (response.data.success) {
           setMedia(response.data.results || []);

@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -30,7 +31,6 @@ import { formatProtocolLabel } from "@/lib/formatProtocol";
 import { useAuth } from "@/context/AuthContext";
 import "../../../styles/Indexers.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface Indexer {
   id?: number;
@@ -153,7 +153,7 @@ const Indexers = () => {
   const fetchIndexers = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/api/Indexers/read`);
+      const response = await axios.get(`${getApiBaseUrl()}/api/Indexers/read`);
       const fetchedIndexers = response.data.data || [];
       setIndexers(fetchedIndexers);
 
@@ -177,7 +177,7 @@ const Indexers = () => {
       if (verifiedFilter) params.verified = "true";
 
       const response = await axios.get(
-        `${API_BASE_URL}/api/Indexers/available`,
+        `${getApiBaseUrl()}/api/Indexers/available`,
         { params },
       );
       setAvailableIndexers(response.data.indexers || []);
@@ -222,13 +222,13 @@ const Indexers = () => {
   const handleEditIndexer = async (indexer: Indexer) => {
     try {
       const response = await axios.get(
-        `${API_BASE_URL}/api/Indexers/read/${indexer.id}`,
+        `${getApiBaseUrl()}/api/Indexers/read/${indexer.id}`,
       );
       const data = response.data;
       if (data.cardigannId) {
         try {
           const definition = await axios.get(
-            `${API_BASE_URL}/api/Indexers/definition/${data.cardigannId}`,
+            `${getApiBaseUrl()}/api/Indexers/definition/${data.cardigannId}`,
           );
           data.settingsSchema = definition.data.settings || [];
           data.availableBaseUrls = definition.data.availableBaseUrls || data.availableBaseUrls;
@@ -264,7 +264,7 @@ const Indexers = () => {
       setTestSuccess(false);
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/Indexers/test`,
+        `${getApiBaseUrl()}/api/Indexers/test`,
         formData,
       );
 
@@ -289,11 +289,11 @@ const Indexers = () => {
     try {
       if (editingIndexer) {
         await axios.put(
-          `${API_BASE_URL}/api/Indexers/update/${editingIndexer.id}`,
+          `${getApiBaseUrl()}/api/Indexers/update/${editingIndexer.id}`,
           formData,
         );
       } else {
-        await axios.post(`${API_BASE_URL}/api/Indexers/create`, formData);
+        await axios.post(`${getApiBaseUrl()}/api/Indexers/create`, formData);
       }
       fetchIndexers();
       onConfigModalClose();
@@ -308,7 +308,7 @@ const Indexers = () => {
     if (!confirm("Are you sure you want to delete this indexer?")) return;
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/Indexers/delete/${id}`);
+      await axios.delete(`${getApiBaseUrl()}/api/Indexers/delete/${id}`);
       fetchIndexers();
     } catch (error) {
       console.error("Error deleting indexer:", error);
@@ -318,7 +318,7 @@ const Indexers = () => {
   const handleSync = async () => {
     try {
       setSyncing(true);
-      await axios.post(`${API_BASE_URL}/api/Indexers/sync`);
+      await axios.post(`${getApiBaseUrl()}/api/Indexers/sync`);
       fetchIndexers();
     } catch (error) {
       console.error("Error syncing indexers:", error);
@@ -332,12 +332,12 @@ const Indexers = () => {
       setTesting(true);
       setTestResults({});
       const response = await axios.post(
-        `${API_BASE_URL}/api/Indexers/test-all`,
+        `${getApiBaseUrl()}/api/Indexers/test-all`,
       );
 
       // Refresh indexers to get latest status after testing
       const refreshResponse = await axios.get(
-        `${API_BASE_URL}/api/Indexers/read`,
+        `${getApiBaseUrl()}/api/Indexers/read`,
       );
       const updatedIndexers = refreshResponse.data.data || [];
       setIndexers(updatedIndexers);
@@ -665,7 +665,7 @@ const Indexers = () => {
                           if (!isAdmin) return;
                           try {
                             await axios.put(
-                              `${API_BASE_URL}/api/Indexers/update/${indexer.id}`,
+                              `${getApiBaseUrl()}/api/Indexers/update/${indexer.id}`,
                               {
                                 ...indexer,
                                 enabled,

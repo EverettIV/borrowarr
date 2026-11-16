@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -29,7 +30,6 @@ import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
 import LoginRequiredModal from "@/components/LoginRequiredModal";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const YOUTUBE_EMBED_URL = "https://www.youtube.com/embed/";
 const YOUTUBE_WATCH_URL = "https://www.youtube.com/watch?v=";
@@ -264,7 +264,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
 
       // Check indexers
       const indexersResponse = await axios.get(
-        `${API_BASE_URL}/api/Indexers/read`,
+        `${getApiBaseUrl()}/api/Indexers/read`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -276,7 +276,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
 
       // Check download clients
       const clientsResponse = await axios.get(
-        `${API_BASE_URL}/api/DownloadClients/read`,
+        `${getApiBaseUrl()}/api/DownloadClients/read`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -333,7 +333,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
     if (!user) return;
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Settings`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Settings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.data) {
@@ -513,8 +513,8 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
       const tmdbId = media.id as number;
 
       const endpoint = isTV
-        ? `${API_BASE_URL}/api/TMDB/tv/${tmdbId}`
-        : `${API_BASE_URL}/api/TMDB/movie/${tmdbId}`;
+        ? `${getApiBaseUrl()}/api/TMDB/tv/${tmdbId}`
+        : `${getApiBaseUrl()}/api/TMDB/movie/${tmdbId}`;
 
       const response = await axios.get(endpoint);
 
@@ -573,7 +573,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
 
       // Use the Search API endpoint to search for torrents - fetch all results
       // Add fresh=true on first attempt to bypass cache and get fresh results
-      const response = await axios.get(`${API_BASE_URL}/api/Search`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Search`, {
         params: {
           query: searchQuery,
           categoryIds: media.media_type === "tv" ? "5000" : "2000",
@@ -663,7 +663,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
       if (!hasAutoApprove) {
         const token = localStorage.getItem("accessToken");
         await axios.post(
-          `${API_BASE_URL}/api/MediaRequests`,
+          `${getApiBaseUrl()}/api/MediaRequests`,
           {
             mediaType: "movie",
             tmdbId: media?.id || 0,
@@ -730,7 +730,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
       );
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+        `${getApiBaseUrl()}/api/DownloadClients/grab`,
         downloadPayload,
       );
 
@@ -845,7 +845,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
         );
 
         const requestResponse = await axios.post(
-          `${API_BASE_URL}/api/MediaRequests`,
+          `${getApiBaseUrl()}/api/MediaRequests`,
           {
             mediaType: "movie",
             tmdbId: media.id,
@@ -936,7 +936,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
 
     try {
       const token = localStorage.getItem("accessToken"); // Fixed: use 'accessToken' not 'token'
-      const response = await axios.get(`${API_BASE_URL}/api/Favorites/check`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Favorites/check`, {
         params: {
           tmdbId: media.id,
           mediaType: "movie",
@@ -967,7 +967,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
 
       if (isFavorited) {
         // Remove from favorites
-        await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+        await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           data: {
             tmdbId: media.id,
@@ -983,7 +983,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
           : media.posterUrl || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/Favorites`,
+          `${getApiBaseUrl()}/api/Favorites`,
           {
             tmdbId: media.id,
             mediaType: "movie",
@@ -1017,7 +1017,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/HiddenMedia`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/HiddenMedia`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -1047,7 +1047,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
       if (isHidden) {
         // Unhide
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/unhide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/unhide`,
           {
             tmdbId: media.id,
             mediaType: "movie",
@@ -1064,7 +1064,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
         const posterPath = media.poster_path || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/hide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/hide`,
           {
             tmdbId: media.id,
             mediaType: "movie",

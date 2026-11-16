@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -27,7 +28,6 @@ import { PageContent, PageHeader } from "@/components/page-header";
 import { PlexBadge } from "@/components/PlexBadge";
 import { usePlexLibrary } from "@/hooks/usePlexLibrary";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface Favorite {
   id: number;
@@ -144,7 +144,7 @@ const FavoritesPage = () => {
           params.search = debouncedSearchQuery.trim();
         }
 
-        const response = await axios.get(`${API_BASE_URL}/api/Favorites`, {
+        const response = await axios.get(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           params,
         });
@@ -229,7 +229,7 @@ const FavoritesPage = () => {
 
     try {
       const token = localStorage.getItem("accessToken");
-      await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+      await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
         headers: { Authorization: `Bearer ${token}` },
         data: {
           tmdbId: favorite.tmdbId,

@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect } from "react";
 import {
   ArrowRight,
@@ -28,7 +29,6 @@ import {
 } from "@/components/ui/carousel";
 import "../styles/SideScrollMovieList.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 
 interface TMDBMedia {
@@ -183,7 +183,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Favorites`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Favorites`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -205,7 +205,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/HiddenMedia`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/HiddenMedia`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -282,7 +282,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
         user?.permissions?.auto_approve || user?.permissions?.admin;
 
       if (!hasAutoApprove) {
-        await axios.post(`${API_BASE_URL}/api/MediaRequests`, {
+        await axios.post(`${getApiBaseUrl()}/api/MediaRequests`, {
           mediaType: "movie",
           tmdbId: item.id,
           title,
@@ -386,7 +386,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
       const token = localStorage.getItem("accessToken");
 
       if (isFavorited) {
-        await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+        await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           data: { tmdbId: item.id, mediaType },
         });
@@ -402,7 +402,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
           : item.posterUrl || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/Favorites`,
+          `${getApiBaseUrl()}/api/Favorites`,
           {
             tmdbId: item.id,
             mediaType,
@@ -458,7 +458,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
       if (isHidden) {
         // Unhide
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/unhide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/unhide`,
           {
             tmdbId: item.id,
             mediaType,
@@ -478,7 +478,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
         const posterPath = item.poster_path || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/hide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/hide`,
           {
             tmdbId: item.id,
             mediaType,

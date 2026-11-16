@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
@@ -6,9 +7,6 @@ import { Button, Chip, Input } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
 import { RefreshCw, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 export type ActivityLogStatus = "success" | "failure" | "info";
 
@@ -158,7 +156,7 @@ export function ActivityLogPanel({
         if (search.trim()) params.search = search.trim();
         if (statusFilter !== "all") params.status = statusFilter;
 
-        const res = await axios.get(`${API_BASE_URL}/api/ActivityLog`, {
+        const res = await axios.get(`${getApiBaseUrl()}/api/ActivityLog`, {
           params,
           headers: { Authorization: `Bearer ${token}` },
         });

@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
@@ -29,7 +30,6 @@ import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
 import "../../../styles/Requests.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w300";
 
 interface MediaRequest {
@@ -117,7 +117,7 @@ const Requests = () => {
       const endpoint = canManageRequests
         ? "/api/MediaRequests/all"
         : "/api/MediaRequests/my";
-      const response = await axios.get(`${API_BASE_URL}${endpoint}`, {
+      const response = await axios.get(`${getApiBaseUrl()}${endpoint}`, {
         headers: { Authorization: `Bearer ${token}` },
         params: { status: selectedTab === "all" ? undefined : selectedTab },
       });
@@ -135,7 +135,7 @@ const Requests = () => {
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.get(
-        `${API_BASE_URL}/api/MediaRequests/counts`,
+        `${getApiBaseUrl()}/api/MediaRequests/counts`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -178,7 +178,7 @@ const Requests = () => {
       const token = localStorage.getItem("accessToken");
 
       await axios.post(
-        `${API_BASE_URL}/api/MediaRequests/${reviewingRequest.id}/${reviewAction}`,
+        `${getApiBaseUrl()}/api/MediaRequests/${reviewingRequest.id}/${reviewAction}`,
         { reviewNote },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -208,7 +208,7 @@ const Requests = () => {
 
     try {
       const token = localStorage.getItem("accessToken");
-      await axios.delete(`${API_BASE_URL}/api/MediaRequests/${requestId}`, {
+      await axios.delete(`${getApiBaseUrl()}/api/MediaRequests/${requestId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       showNotification("success", "Request deleted");

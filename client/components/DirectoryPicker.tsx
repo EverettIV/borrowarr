@@ -1,10 +1,10 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import axios from "axios";
 import "../styles/DirectoryPicker.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface Directory {
   name: string;
@@ -91,7 +91,7 @@ const DirectoryPicker: React.FC<DirectoryPickerProps> = ({
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.get<DirectoryBrowserResponse>(
-        `${API_BASE_URL}/api/Settings/browse?currentPath=${encodeURIComponent(path)}`,
+        `${getApiBaseUrl()}/api/Settings/browse?currentPath=${encodeURIComponent(path)}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           signal: controller.signal,

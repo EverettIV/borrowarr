@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
@@ -28,7 +29,6 @@ import { ScrollToTop } from "@/components/ScrollToTop";
 import { PageContent, PageHeader } from "@/components/page-header";
 import { formatProtocolLabel } from "@/lib/formatProtocol";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface HistoryEntry {
   id: number;
@@ -104,7 +104,7 @@ export default function HistoryPage() {
 
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/api/History`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/History`, {
         params: {
           page,
           limit: 50,
@@ -149,7 +149,7 @@ export default function HistoryPage() {
 
     try {
       setStatsLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/api/History/stats`);
+      const response = await axios.get(`${getApiBaseUrl()}/api/History/stats`);
 
       if (response.data.success) {
         setStats(response.data.stats);
@@ -185,7 +185,7 @@ export default function HistoryPage() {
     }
 
     try {
-      const response = await axios.delete(`${API_BASE_URL}/api/History/clear`);
+      const response = await axios.delete(`${getApiBaseUrl()}/api/History/clear`);
 
       if (response.data.success) {
         showNotification("Success", response.data.message, "success");
@@ -207,7 +207,7 @@ export default function HistoryPage() {
     if (!user) return;
 
     try {
-      const response = await axios.delete(`${API_BASE_URL}/api/History/${id}`);
+      const response = await axios.delete(`${getApiBaseUrl()}/api/History/${id}`);
 
       if (response.data.success) {
         showNotification("Success", "History entry deleted", "success");

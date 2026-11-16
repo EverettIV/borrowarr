@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
@@ -49,7 +50,6 @@ import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
 import "../../../styles/FileManagement.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 type RenameBatchServerStatus = {
   status: "running" | "complete" | "failed";
@@ -923,7 +923,7 @@ const FileManagement = () => {
   const fetchSettings = async () => {
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.get(`${API_BASE_URL}/api/Settings`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Settings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -1036,7 +1036,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.get(
-        `${API_BASE_URL}/api/Settings/download-watcher/pending`,
+        `${getApiBaseUrl()}/api/Settings/download-watcher/pending`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -1052,7 +1052,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       await axios.post(
-        `${API_BASE_URL}/api/Settings/download-watcher/approve`,
+        `${getApiBaseUrl()}/api/Settings/download-watcher/approve`,
         { fileId },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1076,7 +1076,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       await axios.post(
-        `${API_BASE_URL}/api/Settings/download-watcher/reject`,
+        `${getApiBaseUrl()}/api/Settings/download-watcher/reject`,
         { fileId },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1117,7 +1117,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.post(
-        `${API_BASE_URL}/api/Settings/download-watcher/preview`,
+        `${getApiBaseUrl()}/api/Settings/download-watcher/preview`,
         watcherPathsPayload(),
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1161,7 +1161,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.post(
-        `${API_BASE_URL}/api/Settings/download-watcher/trigger`,
+        `${getApiBaseUrl()}/api/Settings/download-watcher/trigger`,
         watcherPathsPayload(),
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1229,7 +1229,7 @@ const FileManagement = () => {
       try {
         const token = localStorage.getItem("accessToken");
         const response = await axios.post(
-          `${API_BASE_URL}/api/Settings/test-directory`,
+          `${getApiBaseUrl()}/api/Settings/test-directory`,
           { directory },
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -1313,7 +1313,7 @@ const FileManagement = () => {
       try {
         const token = localStorage.getItem("accessToken");
         const response = await axios.post(
-          `${API_BASE_URL}/api/Settings/test-directory`,
+          `${getApiBaseUrl()}/api/Settings/test-directory`,
           { directory },
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -1417,7 +1417,7 @@ const FileManagement = () => {
       try {
         const token = localStorage.getItem("accessToken");
         const response = await axios.put(
-          `${API_BASE_URL}/api/Settings`,
+          `${getApiBaseUrl()}/api/Settings`,
           buildSettingsPayload(snapshot),
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -1548,7 +1548,7 @@ const FileManagement = () => {
         try {
           const token = localStorage.getItem("accessToken");
           const response = await axios.post(
-            `${API_BASE_URL}/api/Settings/import-${type === "movie" ? "movies" : "series"}`,
+            `${getApiBaseUrl()}/api/Settings/import-${type === "movie" ? "movies" : "series"}`,
             { dryRun: false },
             {
               headers: { Authorization: `Bearer ${token}` },
@@ -1628,7 +1628,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       const response = await axios.post(
-        `${API_BASE_URL}/api/Settings/preview-renames`,
+        `${getApiBaseUrl()}/api/Settings/preview-renames`,
         {
           movieFileFormat:
             type === "movies" ? settings.movieFileFormat : undefined,
@@ -1712,7 +1712,7 @@ const FileManagement = () => {
     async (): Promise<RenameBatchServerStatus | null> => {
       const token = localStorage.getItem("accessToken");
       const res = await axios.get(
-        `${API_BASE_URL}/api/Settings/rename-batch/status`,
+        `${getApiBaseUrl()}/api/Settings/rename-batch/status`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       return res.data.batch ?? null;
@@ -1755,7 +1755,7 @@ const FileManagement = () => {
     const token = localStorage.getItem("accessToken");
     try {
       await axios.post(
-        `${API_BASE_URL}/api/Settings/rename-batch/dismiss`,
+        `${getApiBaseUrl()}/api/Settings/rename-batch/dismiss`,
         {},
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1821,7 +1821,7 @@ const FileManagement = () => {
   ) => {
     const token = localStorage.getItem("accessToken");
     const response = await axios.post(
-      `${API_BASE_URL}/api/Settings/execute-renames`,
+      `${getApiBaseUrl()}/api/Settings/execute-renames`,
       {
         renames: items.map(renamePayloadFromItem),
         type,
@@ -1851,7 +1851,7 @@ const FileManagement = () => {
         type: item.type === "series" ? "series" : "movie",
       }));
       const res = await axios.post(
-        `${API_BASE_URL}/api/Settings/rename-batch/start`,
+        `${getApiBaseUrl()}/api/Settings/rename-batch/start`,
         { renames },
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -1939,7 +1939,7 @@ const FileManagement = () => {
     try {
       const token = localStorage.getItem("accessToken");
       const res = await axios.post(
-        `${API_BASE_URL}/api/Settings/rename-apply-tmdb`,
+        `${getApiBaseUrl()}/api/Settings/rename-apply-tmdb`,
         {
           currentPath: item.currentPath,
           movieFileFormat:

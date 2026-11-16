@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -34,7 +35,6 @@ import { ScrollToTop } from "@/components/ScrollToTop";
 import { PageContent, PageHeader } from "@/components/page-header";
 import "../../../styles/MediaLibrary.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface PlexMedia {
   key: string;
@@ -134,7 +134,7 @@ const MediaLibrary = () => {
     }
 
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/PlexConnection`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/PlexConnection`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
@@ -175,7 +175,7 @@ const MediaLibrary = () => {
         console.log("📡 Fetching Plex media with params:", params);
 
         const response = await axios.get(
-          `${API_BASE_URL}/api/PlexConnection/media`,
+          `${getApiBaseUrl()}/api/PlexConnection/media`,
           {
             headers: {
               Authorization: `Bearer ${localStorage.getItem("accessToken")}`,

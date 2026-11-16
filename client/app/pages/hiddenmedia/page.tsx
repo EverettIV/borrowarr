@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -15,7 +16,6 @@ import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
 import { ScrollToTop } from "@/components/ScrollToTop";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface HiddenMedia {
   id: string;
@@ -91,7 +91,7 @@ const HiddenMediaPage = () => {
       }
 
       const response = await axios.get(
-        `${API_BASE_URL}/api/HiddenMedia/details`,
+        `${getApiBaseUrl()}/api/HiddenMedia/details`,
         {
           headers: { Authorization: `Bearer ${token}` },
           params,
@@ -149,7 +149,7 @@ const HiddenMediaPage = () => {
       const token = localStorage.getItem("accessToken");
 
       await axios.post(
-        `${API_BASE_URL}/api/HiddenMedia/unhide`,
+        `${getApiBaseUrl()}/api/HiddenMedia/unhide`,
         {
           tmdbId: item.tmdbId,
           mediaType: item.mediaType,

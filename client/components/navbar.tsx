@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import {
   Navbar as HeroUINavbar,
   NavbarContent,
@@ -50,9 +51,6 @@ export const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [indexers, setIndexers] = useState<any[]>([]);
   const [selectedIndexer, setSelectedIndexer] = useState<string>("all");
-  const API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
-
   const handleAuthAction = () => {
     if (user) {
       logout();
@@ -82,7 +80,7 @@ export const Navbar = () => {
     if (!token) return;
 
     axios
-      .get(`${API_BASE_URL}/api/Indexers/read`, {
+      .get(`${getApiBaseUrl()}/api/Indexers/read`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

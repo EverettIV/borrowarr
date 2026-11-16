@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import React, {
   useState,
@@ -29,7 +30,6 @@ import { ActivityLogPanel } from "./ActivityLogPanel";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import DirectoryPicker from "./DirectoryPicker";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 const selectFieldClass =
   "w-full rounded-lg border border-content3 bg-content1 px-3 py-2 text-sm";
@@ -191,7 +191,7 @@ export function AnomalyDetectorPanel({
       const token = localStorage.getItem("accessToken");
       const { data } = await axios.get<
         AnomalySchedulerStatus & { success: boolean }
-      >(`${API_BASE_URL}/api/Settings/anomaly-detector/status`, {
+      >(`${getApiBaseUrl()}/api/Settings/anomaly-detector/status`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setSchedulerStatus(data);
@@ -227,7 +227,7 @@ export function AnomalyDetectorPanel({
     try {
       const token = localStorage.getItem("accessToken");
       await axios.post(
-        `${API_BASE_URL}/api/Settings/anomaly-detector/cancel`,
+        `${getApiBaseUrl()}/api/Settings/anomaly-detector/cancel`,
         {},
         { headers: { Authorization: `Bearer ${token}` } },
       );
@@ -268,7 +268,7 @@ export function AnomalyDetectorPanel({
     try {
       const token = localStorage.getItem("accessToken");
       const { data } = await axios.post<ScanResult & { success: boolean }>(
-        `${API_BASE_URL}/api/Settings/anomaly-detector/scan`,
+        `${getApiBaseUrl()}/api/Settings/anomaly-detector/scan`,
         {
           mediaType: "movie",
           directoryPath: effectiveDirectory,
@@ -323,7 +323,7 @@ export function AnomalyDetectorPanel({
     try {
       const token = localStorage.getItem("accessToken");
       await axios.post(
-        `${API_BASE_URL}/api/Settings/anomaly-detector/delete`,
+        `${getApiBaseUrl()}/api/Settings/anomaly-detector/delete`,
         {
           filePath: target.path,
           scanDirectory: scanResult?.mediaDirectory,

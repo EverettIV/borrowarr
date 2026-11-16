@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 
 import {
   createContext,
@@ -11,7 +12,6 @@ import {
 import axios from "axios";
 import { installTmdbAuthInterceptor } from "@/lib/tmdbApi";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface UserPermissions {
   admin: boolean;
@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // One refresh at a time: reuse in-flight refresh promise
           if (!refreshPromiseRef.current) {
             refreshPromiseRef.current = axios
-              .post(`${API_BASE_URL}/api/auth/refresh`, { refreshToken: token })
+              .post(`${getApiBaseUrl()}/api/auth/refresh`, { refreshToken: token })
               .then((res) => {
                 const newAccess = res.data?.accessToken;
                 if (newAccess) setTokens(newAccess, token);
@@ -177,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        const response = await axios.get(`${API_BASE_URL}/api/auth/verify`, {
+        const response = await axios.get(`${getApiBaseUrl()}/api/auth/verify`, {
           headers: {
             Authorization: `Bearer ${accessToken}`,
           },
@@ -199,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+      const response = await axios.post(`${getApiBaseUrl()}/api/auth/login`, {
         username,
         password,
       });
@@ -223,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email?: string,
   ) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/register`, {
+      const response = await axios.post(`${getApiBaseUrl()}/api/auth/register`, {
         username,
         password,
         ...(email ? { email } : {}),
@@ -249,7 +249,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         throw new Error("No refresh token");
       }
 
-      const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
+      const response = await axios.post(`${getApiBaseUrl()}/api/auth/refresh`, {
         refreshToken: token,
       });
 
@@ -266,7 +266,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const { accessToken } = getTokens();
       const response = await axios.put(
-        `${API_BASE_URL}/api/auth/profile`,
+        `${getApiBaseUrl()}/api/auth/profile`,
         data,
         {
           headers: {

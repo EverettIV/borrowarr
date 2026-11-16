@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Input } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -22,7 +23,6 @@ import { PageContent, PageHeader } from "@/components/page-header";
 import { formatProtocolLabel } from "@/lib/formatProtocol";
 import "../../../styles/Search.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 // Simple in-memory cache with TTL
 const cache = new Map<string, { data: any; timestamp: number; ttl: number }>();
@@ -133,7 +133,7 @@ const Search = () => {
     try {
       setFetchingIndexers(true);
       console.log("[Search] Fetching indexers from API...");
-      const response = await axios.get(`${API_BASE_URL}/api/Indexers/read`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Indexers/read`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
@@ -229,7 +229,7 @@ const Search = () => {
         params.indexerIds = Array.from(selectedIndexers);
       }
 
-      const response = await axios.get(`${API_BASE_URL}/api/Search`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/Search`, {
         params,
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -416,7 +416,7 @@ const Search = () => {
           `${inferredMediaType}:${result.title.toLowerCase().trim()}`,
         );
 
-        await axios.post(`${API_BASE_URL}/api/MediaRequests`, {
+        await axios.post(`${getApiBaseUrl()}/api/MediaRequests`, {
           mediaType: inferredMediaType,
           tmdbId: syntheticTmdbId,
           title: result.title,
@@ -439,7 +439,7 @@ const Search = () => {
       }
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+        `${getApiBaseUrl()}/api/DownloadClients/grab`,
         {
           downloadUrl: result.downloadUrl,
           protocol: result.protocol, // Pass protocol so backend selects correct client by priority

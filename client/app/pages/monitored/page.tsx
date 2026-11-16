@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useMemo } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -29,7 +30,6 @@ import { ScrollToTop } from "@/components/ScrollToTop";
 import { PageContent, PageHeader } from "@/components/page-header";
 import "../../../styles/Monitored.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface MonitoredMovie {
   id: number;
@@ -166,11 +166,11 @@ const Monitored = () => {
         listParams.scope = "all";
       }
       const [moviesResponse, seriesResponse] = await Promise.all([
-        axios.get(`${API_BASE_URL}/api/MonitoredMovies`, {
+        axios.get(`${getApiBaseUrl()}/api/MonitoredMovies`, {
           params: listParams,
           headers: monitoredAuthHeaders(),
         }),
-        axios.get(`${API_BASE_URL}/api/MonitoredSeries`, {
+        axios.get(`${getApiBaseUrl()}/api/MonitoredSeries`, {
           params: listParams,
           headers: monitoredAuthHeaders(),
         }),
@@ -206,7 +206,7 @@ const Monitored = () => {
     setDeleting((prev) => new Set(prev).add(movie.id));
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/MonitoredMovies/${movie.id}`, {
+      await axios.delete(`${getApiBaseUrl()}/api/MonitoredMovies/${movie.id}`, {
         params: { userId: movie.userId },
         headers: monitoredAuthHeaders(),
       });
@@ -235,7 +235,7 @@ const Monitored = () => {
     setDeletingSeries((prev) => new Set(prev).add(seriesItem.id));
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/MonitoredSeries/${seriesItem.id}`, {
+      await axios.delete(`${getApiBaseUrl()}/api/MonitoredSeries/${seriesItem.id}`, {
         params: { userId: seriesItem.userId },
         headers: monitoredAuthHeaders(),
       });
@@ -425,7 +425,7 @@ const Monitored = () => {
         ? new Date(movie.releaseDate).getFullYear()
         : "";
       const response = await axios.get(
-        `${API_BASE_URL}/api/TMDB/movie/${movie.tmdbId}/torrents`,
+        `${getApiBaseUrl()}/api/TMDB/movie/${movie.tmdbId}/torrents`,
         {
           params: {
             title: movie.title,
@@ -457,7 +457,7 @@ const Monitored = () => {
     setUpdatingSettings(true);
     try {
       await axios.put(
-        `${API_BASE_URL}/api/MonitoredMovies/${selectedMovieForDownload.id}`,
+        `${getApiBaseUrl()}/api/MonitoredMovies/${selectedMovieForDownload.id}`,
         {
           monitor: editMonitor,
           minAvailability: editMinAvailability,
@@ -497,7 +497,7 @@ const Monitored = () => {
 
     try {
       const response = await axios.post(
-        `${API_BASE_URL}/api/DownloadClients/grab`,
+        `${getApiBaseUrl()}/api/DownloadClients/grab`,
         {
           downloadUrl: torrent.downloadUrl,
         },
@@ -508,7 +508,7 @@ const Monitored = () => {
 
         // Update movie status to downloading
         await axios.put(
-          `${API_BASE_URL}/api/MonitoredMovies/${selectedMovieForDownload.id}`,
+          `${getApiBaseUrl()}/api/MonitoredMovies/${selectedMovieForDownload.id}`,
           {
             status: "downloading",
             downloadedTorrentId: torrent.id,
@@ -582,7 +582,7 @@ const Monitored = () => {
                       ? "scope=all"
                       : `userId=${encodeURIComponent(user.id)}`;
                     await axios.post(
-                      `${API_BASE_URL}/api/MonitoredMovies/check-all?${checkParams}`,
+                      `${getApiBaseUrl()}/api/MonitoredMovies/check-all?${checkParams}`,
                       undefined,
                       { headers: monitoredAuthHeaders() },
                     );

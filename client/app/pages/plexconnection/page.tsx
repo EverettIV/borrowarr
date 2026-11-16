@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -26,7 +27,6 @@ import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
 import "../../../styles/PlexConnection.scss";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface PlexConnection {
   connected: boolean;
@@ -96,7 +96,7 @@ const PlexConnection = () => {
 
     try {
       if (!silent) setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/api/PlexConnection`, {
+      const response = await axios.get(`${getApiBaseUrl()}/api/PlexConnection`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
@@ -116,7 +116,7 @@ const PlexConnection = () => {
       setLoadingLibraries(true);
       setLibrariesError(null);
       const response = await axios.get(
-        `${API_BASE_URL}/api/PlexConnection/libraries`,
+        `${getApiBaseUrl()}/api/PlexConnection/libraries`,
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
@@ -155,7 +155,7 @@ const PlexConnection = () => {
       setTestResult(null);
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/PlexConnection/test`,
+        `${getApiBaseUrl()}/api/PlexConnection/test`,
         { serverUrl, authToken },
         {
           headers: {
@@ -185,7 +185,7 @@ const PlexConnection = () => {
       setSaving(true);
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/PlexConnection/save`,
+        `${getApiBaseUrl()}/api/PlexConnection/save`,
         { serverUrl, authToken },
         {
           headers: {
@@ -218,7 +218,7 @@ const PlexConnection = () => {
     if (!confirm("Are you sure you want to disconnect from Plex?")) return;
 
     try {
-      await axios.delete(`${API_BASE_URL}/api/PlexConnection`, {
+      await axios.delete(`${getApiBaseUrl()}/api/PlexConnection`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
@@ -234,7 +234,7 @@ const PlexConnection = () => {
     try {
       setTesting(true);
       const response = await axios.post(
-        `${API_BASE_URL}/api/PlexConnection/retest`,
+        `${getApiBaseUrl()}/api/PlexConnection/retest`,
         {},
         {
           headers: {

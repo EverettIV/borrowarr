@@ -1,4 +1,5 @@
 "use client";
+import { getApiBaseUrl } from "@/lib/apiBaseUrl";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@heroui/react";
 import { YLogoLoader } from "@/components/YLogoLoader";
@@ -31,7 +32,6 @@ import { useAuth } from "@/context/AuthContext";
 import { PlexBadge } from "@/components/PlexBadge";
 import { usePlexLibrary } from "@/hooks/usePlexLibrary";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
 interface TMDBMedia {
   id: number;
@@ -223,7 +223,7 @@ const MoviesPage = () => {
       } else {
         setSelectedStudioName(null);
         axios
-          .get(`${API_BASE_URL}/api/TMDB/company/${urlStudio}`)
+          .get(`${getApiBaseUrl()}/api/TMDB/company/${urlStudio}`)
           .then((response) => {
             if (response.data.success && response.data.company?.name) {
               setSelectedStudioName(response.data.company.name);
@@ -255,7 +255,7 @@ const MoviesPage = () => {
       if (!isNaN(movieId)) {
         // Fetch and open modal for this movie
         axios
-          .get(`${API_BASE_URL}/api/TMDB/movie/${movieId}`)
+          .get(`${getApiBaseUrl()}/api/TMDB/movie/${movieId}`)
           .then((res) => {
             if (res.data.success && res.data.movie) {
               setSelectedMedia(res.data.movie);
@@ -361,7 +361,7 @@ const MoviesPage = () => {
   useEffect(() => {
     setLoadingGenres(true);
     axios
-      .get(`${API_BASE_URL}/api/TMDB/genres`, { params: { type: "movie" } })
+      .get(`${getApiBaseUrl()}/api/TMDB/genres`, { params: { type: "movie" } })
       .then((response) => {
         if (response.data.success) {
           setGenres(response.data.genres || []);
@@ -379,7 +379,7 @@ const MoviesPage = () => {
   useEffect(() => {
     setLoadingProviders(true);
     axios
-      .get(`${API_BASE_URL}/api/TMDB/watch/providers`, {
+      .get(`${getApiBaseUrl()}/api/TMDB/watch/providers`, {
         params: { region: watchRegion, type: "movie" },
       })
       .then((response) => {
@@ -403,7 +403,7 @@ const MoviesPage = () => {
     if (!token) return;
 
     axios
-      .get(`${API_BASE_URL}/api/Indexers/read`, {
+      .get(`${getApiBaseUrl()}/api/Indexers/read`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -425,7 +425,7 @@ const MoviesPage = () => {
     if (user) {
       const token = localStorage.getItem("accessToken");
       axios
-        .get(`${API_BASE_URL}/api/Favorites/ids?mediaType=movie`, {
+        .get(`${getApiBaseUrl()}/api/Favorites/ids?mediaType=movie`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         .then((response) => {
@@ -444,7 +444,7 @@ const MoviesPage = () => {
     if (user) {
       const token = localStorage.getItem("accessToken");
       axios
-        .get(`${API_BASE_URL}/api/HiddenMedia?mediaType=movie`, {
+        .get(`${getApiBaseUrl()}/api/HiddenMedia?mediaType=movie`, {
           headers: { Authorization: `Bearer ${token}` },
         })
         .then((response) => {
@@ -503,12 +503,12 @@ const MoviesPage = () => {
 
         // If searching by person (cast member), use person movies endpoint
         if (selectedPersonId) {
-          endpoint = `${API_BASE_URL}/api/TMDB/person/${selectedPersonId}/movies`;
+          endpoint = `${getApiBaseUrl()}/api/TMDB/person/${selectedPersonId}/movies`;
           params.sortBy = paramSortBy;
         }
         // If searching, use search endpoint
         else if (paramQuery.trim()) {
-          endpoint = `${API_BASE_URL}/api/TMDB/search`;
+          endpoint = `${getApiBaseUrl()}/api/TMDB/search`;
           params.query = paramQuery.trim();
           // Get search type from URL or default to 'movie' for movies page
           const urlType = searchParams.get("type");
@@ -519,7 +519,7 @@ const MoviesPage = () => {
           }
         } else {
           // Use discover endpoint with all filters
-          endpoint = `${API_BASE_URL}/api/TMDB/discover/movies`;
+          endpoint = `${getApiBaseUrl()}/api/TMDB/discover/movies`;
 
           // Add all filter parameters
           params.sortBy = paramSortBy;
@@ -644,7 +644,7 @@ const MoviesPage = () => {
           );
           const detailsPromises = batch.map((movie) =>
             axios
-              .get(`${API_BASE_URL}/api/TMDB/movie/${movie.id}`)
+              .get(`${getApiBaseUrl()}/api/TMDB/movie/${movie.id}`)
               .then((res) => ({
                 tmdbId: movie.id,
                 title: movie.title,
@@ -688,7 +688,7 @@ const MoviesPage = () => {
           `🌐 Querying parental guide API with ${items.length} items...`,
         );
         const response = await axios
-          .post(`${API_BASE_URL}/api/ParentalGuide/check-batch`, {
+          .post(`${getApiBaseUrl()}/api/ParentalGuide/check-batch`, {
             items,
           })
           .catch((err) => {
@@ -825,7 +825,7 @@ const MoviesPage = () => {
         user?.permissions?.auto_approve || user?.permissions?.admin;
 
       if (!hasAutoApprove) {
-        await axios.post(`${API_BASE_URL}/api/MediaRequests`, {
+        await axios.post(`${getApiBaseUrl()}/api/MediaRequests`, {
           mediaType: "movie",
           tmdbId: item.id,
           title,
@@ -923,7 +923,7 @@ const MoviesPage = () => {
 
       if (isFavorited) {
         // Remove from favorites
-        await axios.delete(`${API_BASE_URL}/api/Favorites`, {
+        await axios.delete(`${getApiBaseUrl()}/api/Favorites`, {
           headers: { Authorization: `Bearer ${token}` },
           data: {
             tmdbId: item.id,
@@ -943,7 +943,7 @@ const MoviesPage = () => {
           : item.posterUrl || null;
 
         const response = await axios.post(
-          `${API_BASE_URL}/api/Favorites`,
+          `${getApiBaseUrl()}/api/Favorites`,
           {
             tmdbId: item.id,
             mediaType: "movie",
@@ -1003,7 +1003,7 @@ const MoviesPage = () => {
       if (isHidden) {
         // Unhide
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/unhide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/unhide`,
           {
             tmdbId: item.id,
             mediaType: "movie",
@@ -1023,7 +1023,7 @@ const MoviesPage = () => {
         const posterPath = item.poster_path || null;
 
         await axios.post(
-          `${API_BASE_URL}/api/HiddenMedia/hide`,
+          `${getApiBaseUrl()}/api/HiddenMedia/hide`,
           {
             tmdbId: item.id,
             mediaType: "movie",
