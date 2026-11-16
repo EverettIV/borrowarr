@@ -387,11 +387,17 @@ exports.updateSettings = async (req, res) => {
   }
 };
 
+const canBrowseServerFilesystem = (user) => Boolean(user?.permissions?.admin);
+
 /**
- * Test directory access
+ * Test directory access (admin only)
  */
 exports.testDirectory = async (req, res) => {
   try {
+    if (!canBrowseServerFilesystem(req.user)) {
+      return res.status(403).json({ error: 'Only admins can test server directories' });
+    }
+
     const { directory } = req.body;
 
     if (!directory) {
@@ -442,11 +448,15 @@ exports.testDirectory = async (req, res) => {
 };
 
 /**
- * Browse directories (for directory picker)
+ * Browse directories (for directory picker — admin only)
  * Supports network shares on Windows (UNC paths), macOS, and Linux
  */
 exports.browseDirectories = async (req, res) => {
   try {
+    if (!canBrowseServerFilesystem(req.user)) {
+      return res.status(403).json({ error: 'Only admins can browse server directories' });
+    }
+
     const { currentPath } = req.query;
     let browsePath = currentPath || '/';
 

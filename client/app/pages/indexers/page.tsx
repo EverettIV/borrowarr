@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { PageContent, PageHeader } from "@/components/page-header";
+import { formatProtocolLabel } from "@/lib/formatProtocol";
 import { useAuth } from "@/context/AuthContext";
 import "../../../styles/Indexers.scss";
 
@@ -434,7 +435,7 @@ const Indexers = () => {
           </>
           ) : undefined
         }
-        description="Manage your torrent and NZB indexers"
+        description="Manage your BitTorrent and Usenet indexers"
         icon={<Shield className="h-6 w-6" />}
         title="Indexers"
       />
@@ -458,7 +459,7 @@ const Indexers = () => {
                   </h3>
                   <p className="text-sm sm:text-base text-foreground/60 mb-4">
                     Get started by adding your first indexer to begin
-                    discovering content.
+                    searching configured indexers.
                   </p>
                   {isAdmin ? (
                   <Button
@@ -584,7 +585,7 @@ const Indexers = () => {
                       size="sm"
                       variant="flat"
                     >
-                      {indexer.protocol.toUpperCase()}
+                      {formatProtocolLabel(indexer.protocol)}
                     </Chip>
                     <Chip
                       className="text-[10px] sm:text-xs h-5 sm:h-6"
@@ -781,7 +782,7 @@ const Indexers = () => {
                       selectedKeys={protocolFilter ? [protocolFilter] : []}
                       size="sm"
                     >
-                      <SelectItem key="torrent">Torrent</SelectItem>
+                      <SelectItem key="torrent">BitTorrent</SelectItem>
                       <SelectItem key="nzb">NZB</SelectItem>
                     </Select>
                     <Select
@@ -878,7 +879,7 @@ const Indexers = () => {
                               size="sm"
                               variant="flat"
                             >
-                              {indexer.protocol.toUpperCase()}
+                              {formatProtocolLabel(indexer.protocol)}
                             </Chip>
                             <Chip
                               className="text-xs h-6 font-medium bg-content3"
@@ -1053,8 +1054,8 @@ const Indexers = () => {
                     Redirect
                   </span>
                   <p className="text-[10px] sm:text-xs text-foreground/50 mt-0.5">
-                    Redirect incoming download request for indexer and pass the
-                    grab directly instead of proxying the request
+                    Redirect indexer grab requests through BorrowArr instead of
+                    proxying the full HTTP request
                   </p>
                 </div>
                 <Switch

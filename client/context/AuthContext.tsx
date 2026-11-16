@@ -9,6 +9,7 @@ import {
   ReactNode,
 } from "react";
 import axios from "axios";
+import { installTmdbAuthInterceptor } from "@/lib/tmdbApi";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
@@ -78,6 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Shared refresh promise so concurrent 401s don't each trigger a refresh
   const refreshPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  useEffect(() => {
+    installTmdbAuthInterceptor();
+  }, []);
 
   // Set up axios interceptor for token refresh
   useEffect(() => {

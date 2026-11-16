@@ -1,3 +1,9 @@
+# Default: bridge network with published ports 3012/3013.
+# If compose fails with "address pools have been fully subnetted", either:
+#   docker network prune -f
+# or use host networking (Linux):
+#   docker compose -f docker-compose.host-network.yml up -d --build
+
 name: borrowarr
 
 services:
@@ -9,8 +15,10 @@ services:
     restart: unless-stopped
     ports:
       - "3013:3013"
+    # Optional — if missing, the server generates JWT secrets on the data volume at first boot
     env_file:
-      - ./server/.env
+      - path: ./server/.env
+        required: false
     environment:
       NODE_ENV: production
       PORT: "3013"

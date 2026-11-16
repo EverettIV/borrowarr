@@ -293,7 +293,7 @@ const FavoritesPage = () => {
     if (!user) {
       showNotification(
         "Login Required",
-        "Please log in to download",
+        "Please sign in to continue",
         "warning",
       );
       return;
@@ -340,8 +340,8 @@ const FavoritesPage = () => {
       } else {
         // TV series download logic
         showNotification(
-          "Series Download",
-          "Please use the series modal to select specific episodes to download",
+          "Series monitoring",
+          "Open the series modal to select seasons or episodes to monitor",
           "info",
         );
         setDownloading((prev) => {
@@ -353,8 +353,8 @@ const FavoritesPage = () => {
       }
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
-      showNotification("Download Error", errorMsg, "error");
+        error.response?.data?.error || error.message || "Action failed";
+      showNotification("Action Failed", errorMsg, "error");
     } finally {
       setDownloading((prev) => {
         const next = new Set(prev);
@@ -457,10 +457,10 @@ const FavoritesPage = () => {
             onClick={(e) => handleQuickDownload(favorite, e)}
             title={
               isDownloaded
-                ? "Downloaded"
+                ? "Added"
                 : isDownloading
-                  ? "Downloading..."
-                  : "Quick Download"
+                  ? "Queueing..."
+                  : "Add to Library"
             }
           >
             {isDownloading ? (

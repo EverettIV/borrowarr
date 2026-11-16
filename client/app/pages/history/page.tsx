@@ -32,6 +32,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { PageContent, PageHeader } from "@/components/page-header";
+import { formatProtocolLabel } from "@/lib/formatProtocol";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
@@ -306,9 +307,9 @@ export default function HistoryPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/5">
       <PageHeader
-        description="Track all your download requests"
+        description="Track grabs, imports, and client activity"
         icon={<Clock className="h-6 w-6" />}
-        title="Download History"
+        title="Activity History"
       />
       <PageContent>
         {/* Stats Cards */}
@@ -503,7 +504,7 @@ export default function HistoryPage() {
                           {statusInfo.label}
                         </Chip>
                         <Chip color="default" size="sm" variant="flat">
-                          {entry.protocol.toUpperCase()}
+                          {formatProtocolLabel(entry.protocol)}
                         </Chip>
                         {entry.indexer && (
                           <Chip color="default" size="sm" variant="flat">

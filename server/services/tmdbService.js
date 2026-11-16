@@ -449,6 +449,54 @@ class TMDBService {
    * @param {number} page - Page number
    * @returns {Promise<Object>} Trending movies
    */
+  async getTopRatedMovies(page = 1) {
+    try {
+      const api = this.getAxiosInstance();
+      const response = await api.get('/movie/top_rated', {
+        params: { page, language: 'en-US' },
+      });
+
+      return {
+        success: true,
+        results: response.data.results || [],
+        page: response.data.page || 1,
+        totalPages: response.data.total_pages || 1,
+        totalResults: response.data.total_results || 0,
+      };
+    } catch (error) {
+      console.error('Error getting top rated movies:', error.message);
+      return {
+        success: false,
+        error: error.message || 'Failed to get top rated movies',
+        results: [],
+      };
+    }
+  }
+
+  async getTopRatedTVShows(page = 1) {
+    try {
+      const api = this.getAxiosInstance();
+      const response = await api.get('/tv/top_rated', {
+        params: { page, language: 'en-US' },
+      });
+
+      return {
+        success: true,
+        results: response.data.results || [],
+        page: response.data.page || 1,
+        totalPages: response.data.total_pages || 1,
+        totalResults: response.data.total_results || 0,
+      };
+    } catch (error) {
+      console.error('Error getting top rated TV shows:', error.message);
+      return {
+        success: false,
+        error: error.message || 'Failed to get top rated TV shows',
+        results: [],
+      };
+    }
+  }
+
   async getTrendingMovies(timeWindow = 'day', page = 1) {
     try {
       const api = this.getAxiosInstance();

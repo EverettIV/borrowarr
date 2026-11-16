@@ -813,7 +813,7 @@ const SeriesPage = () => {
     if (!user) {
       showNotification(
         "Login Required",
-        "Please log in to download series",
+        "Please sign in to add series to your library",
         "warning",
       );
       return;
@@ -935,8 +935,8 @@ const SeriesPage = () => {
       }, 3000);
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
-      showNotification("Download Error", errorMsg, "error");
+        error.response?.data?.error || error.message || "Action failed";
+      showNotification("Action Failed", errorMsg, "error");
     } finally {
       setDownloading((prev) => {
         const next = new Set(prev);
@@ -1288,14 +1288,14 @@ const SeriesPage = () => {
             title={
               isDownloaded
                 ? canAutoApprove
-                  ? "Downloaded"
+                  ? "Added"
                   : "Requested"
                 : isDownloading
                   ? canAutoApprove
-                    ? "Downloading..."
+                    ? "Queueing..."
                     : "Requesting..."
                   : canAutoApprove
-                    ? "Quick Download All Seasons"
+                    ? "Monitor All Seasons"
                     : "Quick Request Series"
             }
           >

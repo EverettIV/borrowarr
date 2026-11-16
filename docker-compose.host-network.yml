@@ -1,0 +1,45 @@
+# Linux homelab: avoids creating a Docker bridge network (fixes
+# "all predefined address pools have been fully subnetted").
+#
+#   docker compose -f docker-compose.host-network.yml up -d --build
+#
+# From another machine on the LAN, set the API URL at build time, e.g.:
+#   NEXT_PUBLIC_API_URL=http://192.168.0.7:3013 docker compose -f docker-compose.host-network.yml up -d --build
+
+name: borrowarr
+
+services:
+  borrowarr-server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: borrowarr-server
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - path: ./server/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: "3013"
+      SQLITE_STORAGE_PATH: /app/data/database.sqlite
+    volumes:
+      - borrowarr-server-data:/app/data
+
+  borrowarr-client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3013}
+    container_name: borrowarr-client
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      NODE_ENV: production
+      PORT: "3012"
+    depends_on:
+      - borrowarr-server
+
+volumes:
+  borrowarr-server-data:

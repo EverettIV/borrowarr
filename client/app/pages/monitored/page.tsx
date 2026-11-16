@@ -271,7 +271,7 @@ const Monitored = () => {
       const response = await grabMonitoredMovie(movie.id, token);
       const msg = response.result?.message || `Grab started for ${movie.title}`;
       await fetchMonitoredContent();
-      alert(response.result?.grab ? `Downloading: ${movie.title}` : msg);
+      alert(response.result?.grab ? `Queued: ${movie.title}` : msg);
     } catch (error: any) {
       const errorMsg =
         error.response?.data?.error || error.message || "Request failed";
@@ -534,11 +534,11 @@ const Monitored = () => {
           });
         }, 3000);
       } else {
-        throw new Error(response.data.error || "Failed to download");
+        throw new Error(response.data.error || "Failed to queue release");
       }
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
+        error.response?.data?.error || error.message || "Action failed";
       setDownloadError((prev) => new Map(prev).set(torrent.id, errorMsg));
       setTimeout(() => {
         setDownloadError((prev) => {
@@ -613,7 +613,7 @@ const Monitored = () => {
                 startContent={<Film size={16} />}
                 onPress={() => router.push("/pages/discover/movies")}
           >
-                <span className="hidden xs:inline">Add Content</span>
+                <span className="hidden xs:inline">Add titles</span>
                 <span className="xs:hidden">Add</span>
           </Button>
           </>
@@ -624,7 +624,7 @@ const Monitored = () => {
             : "Manage your movies and series collection"
         }
         icon={<Film className="h-6 w-6" />}
-        title="Monitored Content"
+        title="Monitored"
       />
 
       {/* Content */}
@@ -792,7 +792,7 @@ const Monitored = () => {
                 </div>
                 <div>
                   <h3 className="text-lg sm:text-xl font-semibold mb-2">
-                    No Content Monitored
+                    Nothing monitored yet
                   </h3>
                   <p className="text-sm sm:text-base text-foreground/60 mb-4">
                     Start by searching for movies or series and adding them to
@@ -805,7 +805,7 @@ const Monitored = () => {
                     size="sm"
                     startContent={<Film size={16} />}
                   >
-                    Search Content
+                    Browse discover
                   </Button>
                 </div>
               </div>
@@ -1000,7 +1000,7 @@ const Monitored = () => {
         )}
       </PageContent>
 
-      {/* Download Torrents Modal */}
+      {/* Release search modal */}
       <Modal
         classNames={{
             backdrop: "bg-overlay/50 backdrop-blur-sm",
@@ -1238,10 +1238,10 @@ const Monitored = () => {
                   </CardBody>
                 </Card>
 
-                {/* Torrents Section */}
+                {/* Releases section */}
                 <div>
                   <h3 className="text-base sm:text-lg font-semibold mb-4 text-foreground">
-                    Available Torrents
+                    Available Releases
                   </h3>
 
                   {loadingTorrents ? (
@@ -1298,8 +1298,8 @@ const Monitored = () => {
                                   }
                               >
                                 {downloadSuccess.has(torrent.id)
-                                  ? "Downloaded"
-                                  : "Download"}
+                                  ? "Queued"
+                                  : "Grab"}
                               </Button>
                             </div>
                             {downloadError.has(torrent.id) && (
@@ -1319,7 +1319,7 @@ const Monitored = () => {
                         <div className="flex flex-col items-center gap-2">
                           <Search className="w-8 h-8 text-foreground/40" />
                           <p className="text-sm text-foreground/60">
-                            No torrents found for this movie
+                            No releases found for this movie
                           </p>
                         </div>
                       </CardBody>

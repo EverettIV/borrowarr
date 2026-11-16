@@ -224,7 +224,7 @@ const downloadClientDefinitions = {
       implementation: "TorrentBlackhole",
       name: "Torrent Blackhole",
       protocol: "torrent",
-      description: "Download torrents to a folder for external processing",
+      description: "Send grabs to a watch folder for external processing",
       fields: [
         { name: "torrentFolder", label: "Torrent Folder", type: "textbox" },
         { name: "watchFolder", label: "Watch Folder", type: "textbox" },

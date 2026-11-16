@@ -34,7 +34,7 @@ async function tryGrabMovie(movie, settings, grabBudget) {
     await logMonitoring(movie.userId, {
       action: 'movie_grab_queued',
       status: 'success',
-      summary: `Download queued: ${movie.title} — ${grab.torrentTitle}`,
+      summary: `Grab queued: ${movie.title} — ${grab.torrentTitle}`,
       details: {
         tmdbId: movie.tmdbId,
         title: movie.title,
@@ -56,7 +56,7 @@ async function tryGrabMovie(movie, settings, grabBudget) {
     await logMonitoring(movie.userId, {
       action: 'movie_grab_failed',
       status: 'failure',
-      summary: `Could not queue download: ${movie.title}`,
+      summary: `Could not queue grab: ${movie.title}`,
       details: {
         tmdbId: movie.tmdbId,
         title: movie.title,
@@ -92,7 +92,7 @@ async function processMonitoredMovie(movie, options = {}) {
       movieId: movie.id,
       title: movie.title,
       status: sync.hasFile ? 'monitoring' : 'missing',
-      message: 'Wanted but auto-download is disabled',
+      message: 'Wanted but Automatic Grab is disabled',
       sync,
     };
   }
@@ -105,7 +105,7 @@ async function processMonitoredMovie(movie, options = {}) {
     title: movie.title,
     status: grabResult.grabbed || stillDownloading ? 'downloading' : 'missing',
     message: grabResult.grabbed
-      ? 'Auto-download initiated'
+      ? 'Grab initiated'
       : grabResult.error || grabResult.reason || 'Grab skipped',
     sync,
     grab: grabResult.grab || null,
@@ -138,7 +138,7 @@ async function processMonitoredSeries(series, options = {}) {
       seriesId: series.id,
       title: series.title,
       status: sync.status,
-      message: 'Episodes wanted but auto-download is disabled',
+      message: 'Episodes wanted but Automatic Grab is disabled',
       sync,
     };
   }
@@ -172,7 +172,7 @@ async function processMonitoredSeries(series, options = {}) {
       await logMonitoring(series.userId, {
         action: 'episode_grab_queued',
         status: 'success',
-        summary: `Download queued: ${series.title} S${ep.season}E${ep.episode} — ${grab.torrentTitle}`,
+        summary: `Grab queued: ${series.title} S${ep.season}E${ep.episode} — ${grab.torrentTitle}`,
         details: {
           tmdbId: series.tmdbId,
           title: series.title,
@@ -183,10 +183,10 @@ async function processMonitoredSeries(series, options = {}) {
       });
       await delay(INTER_EPISODE_GRAB_DELAY_MS);
     } catch (error) {
-      if (!String(error.message).includes('No torrents found')) {
+      if (!String(error.message).includes('No releases found')) {
         console.error(`[Monitoring] Episode grab failed ${series.title} ${ep.key}:`, error.message);
       }
-      if (!String(error.message).includes('No torrents found')) {
+      if (!String(error.message).includes('No releases found')) {
         await logMonitoring(series.userId, {
           action: 'episode_grab_failed',
           status: 'failure',

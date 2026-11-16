@@ -527,7 +527,7 @@ const MediaLibrary = () => {
             } ${isDownloading ? 'opacity-50 cursor-not-allowed' : ''}`}
             disabled={isDownloading || isDownloaded}
             onClick={(e) => handleQuickDownload(item, e)}
-            title={isDownloaded ? 'Downloaded' : isDownloading ? 'Downloading...' : 'Quick Download'}
+            title={isDownloaded ? 'Added' : isDownloading ? 'Queueing...' : 'Add to Library'}
           >
             {isDownloading ? (
               <Spinner

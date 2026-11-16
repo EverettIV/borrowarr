@@ -259,7 +259,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
     if (!user) {
       showNotification(
         "Login Required",
-        "Please log in to download",
+        "Please sign in to continue",
         "warning",
       );
       return;
@@ -270,7 +270,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
     if (isTV) {
       showNotification(
         "Not Supported",
-        "Quick download is not supported for TV shows. Please use the modal to select episodes.",
+        "Bulk add is not supported for TV shows. Open the series modal to choose seasons or episodes.",
         "info",
       );
       return;
@@ -357,8 +357,8 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
       }
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
-      showNotification("Download Error", errorMsg, "error");
+        error.response?.data?.error || error.message || "Action failed";
+      showNotification("Action Failed", errorMsg, "error");
     } finally {
       setDownloading((prev) => {
         const next = new Set(prev);
@@ -650,14 +650,14 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
               title={
                 isDownloaded
                   ? canAutoApprove
-                    ? "Downloaded"
+                    ? "Added"
                     : "Requested"
                   : isDownloading
                     ? canAutoApprove
-                      ? "Downloading..."
+                      ? "Queueing..."
                       : "Requesting..."
                     : canAutoApprove
-                      ? "Quick Download"
+                      ? "Add to Library"
                       : "Quick Request"
               }
             >

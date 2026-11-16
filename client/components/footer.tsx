@@ -385,6 +385,10 @@ const Footer = () => {
             <Heart className="heart-icon" size={14} /> by developers, for
             developers.
           </p>
+          <p className="text-xs text-foreground/50 max-w-2xl text-center mt-2">
+            BorrowArr does not host or supply media. You connect your own
+            indexers and download clients and are responsible for lawful use.
+          </p>
           <div className="footer-links-inline">
             <Link className="footer-link-small" href="/pages/privacy">
               Privacy

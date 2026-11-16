@@ -373,7 +373,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
     if (!user) {
       showNotification(
         "Sign In Required",
-        'Please sign in to download content. Click on "Login" in the navigation menu to get started.',
+        'Please sign in to add titles to your library. Click on "Login" in the navigation menu to get started.',
         "warning",
       );
       return false;
@@ -386,7 +386,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
     if (!hasIndexers) {
       showNotification(
         "Indexers Required",
-        "You need to configure at least one indexer before downloading content. Go to Settings → Indexers to add an indexer.",
+        "You need to configure at least one indexer before queuing releases. Go to Settings → Indexers to add an indexer.",
         "warning",
       );
       return false;
@@ -395,7 +395,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
     if (!hasDownloadClients) {
       showNotification(
         "Download Client Required",
-        "You need to configure a download client before downloading content. Go to Settings → Download Clients to add a client.",
+        "You need to configure a download client before queuing releases. Go to Settings → Download Clients to add a client.",
         "warning",
       );
       return false;
@@ -1013,7 +1013,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
               ? [`${seasonNumber}-${episodeNumber}`]
               : null,
           qualityProfile: "any",
-          requestNote: `Requested from discover torrents list. Release: ${torrent.title} | Indexer: ${torrent.indexer}`,
+          requestNote: `Requested from discover release list. Release: ${torrent.title} | Indexer: ${torrent.indexer}`,
         });
 
         setDownloadTorrentSuccess((prev) => new Set(prev).add(torrentId));
@@ -1089,11 +1089,11 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
           });
         }, 3000);
       } else {
-        throw new Error(response.data.error || "Failed to download");
+        throw new Error(response.data.error || "Failed to queue release");
       }
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
+        error.response?.data?.error || error.message || "Action failed";
       setDownloadTorrentErrors((prev) =>
         new Map(prev).set(torrentId, errorMsg),
       );
@@ -1215,14 +1215,14 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       const errorMessage =
         error.response?.data?.error ||
         error.message ||
-        "Failed to fetch torrents";
+        "Failed to fetch releases";
       console.error("Error details:", errorMessage);
       setCompleteSeriesTorrents([]);
       // Optionally show error to user
       if (error.response?.status === 500) {
         showNotification(
           "Search Error",
-          `Error searching for complete series torrents: ${errorMessage}`,
+          `Error searching for complete series releases: ${errorMessage}`,
           "error",
         );
       }
@@ -1324,7 +1324,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       const errorMessage =
         error.response?.data?.error ||
         error.message ||
-        "Failed to fetch torrents";
+        "Failed to fetch releases";
       console.error("Error details:", errorMessage);
       setSeasonTorrents((prev) => {
         const next = new Map(prev);
@@ -1335,7 +1335,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       if (error.response?.status === 500) {
         showNotification(
           "Search Error",
-          `Error searching for season torrents: ${errorMessage}`,
+          `Error searching for season releases: ${errorMessage}`,
           "error",
         );
       }
@@ -1435,7 +1435,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
       if (allResults.length === 0) {
         throw new Error(
-          `No torrents found for ${title} S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`,
+          `No releases found for ${title} S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`,
         );
       }
 
@@ -1448,7 +1448,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
       if (qualityFilteredTorrents.length === 0) {
         throw new Error(
-          `No torrents matching quality threshold (${effectiveMinQuality}) found for ${title} S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`,
+          `No releases matching quality threshold (${effectiveMinQuality}) found for ${title} S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`,
         );
       }
 
@@ -1457,7 +1457,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
       if (!bestTorrent) {
         throw new Error(
-          `No suitable torrents found for ${title} S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`,
+          `No suitable releases found for ${title} S${String(seasonNumber).padStart(2, "0")}E${String(episodeNumber).padStart(2, "0")}`,
         );
       }
 
@@ -1514,11 +1514,11 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
       if (downloadResponse.data.success) {
         setDownloadedEpisodes((prev) => new Set(prev).add(episodeKey));
       } else {
-        throw new Error(downloadResponse.data.error || "Failed to download");
+        throw new Error(downloadResponse.data.error || "Failed to queue release");
       }
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
+        error.response?.data?.error || error.message || "Action failed";
       setDownloadErrors((prev) => new Map(prev).set(episodeKey, errorMsg));
     } finally {
       setDownloadingEpisodes((prev) => {
@@ -1669,7 +1669,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
           ? error.message
           : "Failed to add series";
       showNotification(
-        "Download Error",
+        "Action Failed",
         errorMsg || "Failed to add series",
         "error",
       );
@@ -2170,7 +2170,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                             target="_blank"
                             variant="flat"
                           >
-                            Search Torrents
+                            Search Releases
                           </Button>
                         </div>
                       </div>
@@ -2681,8 +2681,8 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                                       }
                                                     >
                                                       {isDownloadedTorrent
-                                                        ? "Downloaded"
-                                                        : "Download"}
+                                                        ? "Added"
+                                                        : "Grab"}
                                                     </Button>
                                                   </div>
                                                 </CardBody>
@@ -2695,7 +2695,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                     <Card className="bg-default-50">
                                       <CardBody className="text-center py-4">
                                         <p className="text-sm text-default-500">
-                                          No torrents found for Season{" "}
+                                          No releases found for Season{" "}
                                           {season.season_number}
                                         </p>
                                       </CardBody>
@@ -2788,7 +2788,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                             }
                                           >
                                             {isDownloaded
-                                              ? "Downloaded"
+                                              ? "Added"
                                               : isShowingTorrents
                                                 ? "Hide"
                                                 : "Search"}
@@ -2932,8 +2932,8 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                                               }
                                                             >
                                                               {isDownloadedTorrent
-                                                                ? "Downloaded"
-                                                                : "Download"}
+                                                                ? "Added"
+                                                                : "Grab"}
                                                             </Button>
                                                           </div>
                                                         </CardBody>
@@ -2946,7 +2946,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                               <Card className="bg-default-50">
                                                 <CardBody className="text-center py-4">
                                                   <p className="text-sm text-default-500">
-                                                    No torrents found for this
+                                                    No releases found for this
                                                     episode
                                                   </p>
                                                 </CardBody>

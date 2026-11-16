@@ -43,9 +43,8 @@ const indexersData = [
   { name: "0day.kiev", protocol: "torrent", language: "uk-UA", description: "0day.kiev.ua is a UKRAINIAN Private Torrent Tracker for MOVIES / TV / GENERAL", privacy: "Private", categories: ["Movies", "Audio", "PC", "TV", "Other"] },
   { name: "0Magnet", protocol: "torrent", language: "en-US", description: "ØMagnet is a CHINESE Public tracker for Asian 3X (JAV)", privacy: "Public", categories: ["XXX"] },
   { name: "1337x", protocol: "torrent", language: "en-US", description: "1337X is a Public torrent site that offers verified torrent downloads", privacy: "Public", categories: ["Console", "Movies", "Audio", "PC", "TV", "XXX", "Books", "Other"] },
-  { name: "The Pirate Bay", protocol: "torrent", language: "en-US", description: "The Pirate Bay (TPB) is the galaxy's most resilient Public BitTorrent site", privacy: "Public", categories: ["Console", "Movies", "Audio", "PC", "TV", "XXX", "Books", "Other"] },
-  // TODO: Add all remaining torrent indexers from the user's table
-  // The user provided hundreds of torrent indexers that need to be added here
+  { name: "The Pirate Bay", protocol: "torrent", language: "en-US", description: "Public BitTorrent indexer (third-party; configure only if you are authorized to use it)", privacy: "Public", categories: ["Console", "Movies", "Audio", "PC", "TV", "XXX", "Books", "Other"] },
+  // TODO: Add remaining indexer catalog entries from upstream definitions
   // Use the generateAllIndexers.js helper script to parse and add them
 ];
 

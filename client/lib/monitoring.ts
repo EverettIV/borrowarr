@@ -53,7 +53,7 @@ export function monitorAddNotificationTitle(result: MonitorAddResult): string {
     if (result.action === "on_disk") return "Already on disk";
     return "Already monitored";
   }
-  if (result.action === "grabbed") return "Download Started";
+  if (result.action === "grabbed") return "Release Queued";
   return "Added";
 }
 

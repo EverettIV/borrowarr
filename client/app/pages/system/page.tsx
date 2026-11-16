@@ -338,8 +338,7 @@ const System = () => {
                   <div>
                     <h2 className="text-lg font-semibold">Automation</h2>
                     <p className="text-sm text-default-500">
-                      Automatic downloads and how often monitored content is
-                      checked
+                      Automatic grabs and how often monitored titles are checked
                     </p>
                   </div>
                 </div>
@@ -353,9 +352,9 @@ const System = () => {
             {expandedSections.has("automation") && (
               <CardBody className="pt-0 space-y-6">
                 <SectionInfoCallout>
-                  When Auto Download is on, BorrowArr queues downloads for
-                  monitored items as soon as a matching release appears—no
-                  manual approval on the Monitored page. The check interval
+                  When Automatic Grab is on, BorrowArr queues matching releases
+                  in your download client for monitored titles—no extra approval
+                  on the Monitored page. The check interval
                   controls how often the background job scans for new releases
                   and missing episodes (in seconds; default 300s / 5 minutes).
                   Shorter intervals react faster but use more indexer and server
@@ -367,9 +366,9 @@ const System = () => {
                       <Zap className="text-secondary" size={18} />
                     </div>
                     <div>
-                      <p className="font-medium">Auto Download</p>
+                      <p className="font-medium">Automatic Grab</p>
                       <p className="text-xs text-default-500">
-                        Automatically download monitored content when available
+                        Search indexers and queue grabs when a matching release appears
                       </p>
                     </div>
                   </div>
@@ -421,8 +420,8 @@ const System = () => {
                 <ActivityLogPanel
                   category="monitoring"
                   defaultLimit={25}
-                  description="Adds to Monitored, download queues, and when files show up in your library folders. Admins see all users."
-                  emptyMessage="No monitoring activity yet. Add titles to Monitored or enable auto download."
+                  description="Monitored adds, queued grabs, and imports into library folders. Admins see all users."
+                  emptyMessage="No monitoring activity yet. Add titles to Monitored or enable Automatic Grab."
                   scopeAllForAdmin
                   title="Monitoring activity"
                 />

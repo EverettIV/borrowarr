@@ -780,7 +780,7 @@ const Requests = () => {
 
                 <p className="text-sm text-default-500">
                   {reviewAction === "approve"
-                    ? "This will approve the request and add it to the user's monitored content."
+                    ? "This will approve the request and add the title to the user's monitored list."
                     : "This will deny the request. The user will be notified."}
                 </p>
               </div>

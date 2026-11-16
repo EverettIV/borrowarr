@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import axios from "axios";
 import { PageContent, PageHeader } from "@/components/page-header";
+import { formatProtocolLabel } from "@/lib/formatProtocol";
 import { useAuth } from "@/context/AuthContext";
 import "../../../../styles/DownloadClients.scss";
 
@@ -508,7 +509,7 @@ const DownloadClients = () => {
             )}
           </>
         }
-        description="Manage your torrent and usenet download clients"
+        description="Manage your BitTorrent and Usenet download clients"
         icon={<Download className="h-6 w-6" />}
         title="Download Clients"
       />
@@ -611,7 +612,7 @@ const DownloadClients = () => {
                       size="sm"
                       variant="flat"
                     >
-                      {client.protocol.toUpperCase()}
+                      {formatProtocolLabel(client.protocol)}
                     </Chip>
                   </div>
                 </CardHeader>
@@ -770,7 +771,7 @@ const DownloadClients = () => {
                     <Download className="text-success" size={20} />
                   </div>
                   <h3 className="text-lg font-semibold text-foreground">
-                    Torrent Clients
+                    BitTorrent Clients
                   </h3>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">

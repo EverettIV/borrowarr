@@ -4,13 +4,18 @@ const {
   probeSeriesEpisodes,
   processMonitoredSeries,
 } = require("../services/monitoring");
-const { isMonitoringAdmin, withOwnerUsernames } = require("../utils/monitoredListHelpers");
+const {
+  isMonitoringAdmin,
+  withOwnerUsernames,
+  resolveMonitoredUserId,
+  denyUnlessOwnerOrAdmin,
+  applyMonitoredOwnerUpdates,
+} = require("../utils/monitoredListHelpers");
 
 exports.getMonitoredSeries = async (req, res) => {
   try {
     const isAdmin = isMonitoringAdmin(req.user);
     const { userId, scope } = req.query;
-    const requesterId = req.userId;
 
     let series;
     if (scope === "all" && isAdmin) {
@@ -18,12 +23,9 @@ exports.getMonitoredSeries = async (req, res) => {
         order: [["createdAt", "DESC"]],
       });
     } else {
-      const targetUserId = userId || requesterId;
+      const targetUserId = resolveMonitoredUserId(req, userId);
       if (!targetUserId) {
         return res.status(400).json({ error: "userId is required" });
-      }
-      if (targetUserId !== requesterId && !isAdmin) {
-        return res.status(403).json({ error: "Not authorized to view this monitored list" });
       }
       series = await MonitoredSeries.findAll({
         where: { userId: targetUserId },
@@ -45,8 +47,10 @@ exports.getMonitoredSeries = async (req, res) => {
 
 exports.addMonitoredSeries = async (req, res) => {
   try {
+    const userId = resolveMonitoredUserId(req, req.body?.userId);
     const result = await addMonitoredSeries({
       ...req.body,
+      userId,
       searchOnAdd: req.body.searchOnAdd !== false,
     });
     res.json(result);
@@ -59,10 +63,13 @@ exports.addMonitoredSeries = async (req, res) => {
 exports.updateMonitoredSeries = async (req, res) => {
   try {
     const { id } = req.params;
-    const updates = { ...req.body };
+    const updates = applyMonitoredOwnerUpdates(req, req.body);
     const series = await MonitoredSeries.findByPk(id);
     if (!series) {
       return res.status(404).json({ error: "Series not found" });
+    }
+    if (denyUnlessOwnerOrAdmin(req, res, series.userId, "Not authorized to update this series")) {
+      return;
     }
     if (updates.selectedSeasons && typeof updates.selectedSeasons !== "string") {
       updates.selectedSeasons = JSON.stringify(updates.selectedSeasons);
@@ -81,18 +88,12 @@ exports.updateMonitoredSeries = async (req, res) => {
 exports.removeMonitoredSeries = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
     const series = await MonitoredSeries.findByPk(id);
     if (!series) {
       return res.status(404).json({ error: "Series not found" });
     }
-    const isAdmin = isMonitoringAdmin(req.user);
-    if (req.user) {
-      if (series.userId !== req.userId && !isAdmin) {
-        return res.status(403).json({ error: "Not authorized to remove this series" });
-      }
-    } else if (!userId || series.userId !== userId) {
-      return res.status(403).json({ error: "Not authorized to remove this series" });
+    if (denyUnlessOwnerOrAdmin(req, res, series.userId, "Not authorized to remove this series")) {
+      return;
     }
     await series.destroy();
     res.json({ success: true, message: "Series removed from monitoring" });
@@ -104,9 +105,10 @@ exports.removeMonitoredSeries = async (req, res) => {
 
 exports.isSeriesMonitored = async (req, res) => {
   try {
-    const { userId, tmdbId } = req.query;
-    if (!userId || !tmdbId) {
-      return res.status(400).json({ error: "userId and tmdbId are required" });
+    const { tmdbId } = req.query;
+    const userId = resolveMonitoredUserId(req, req.query.userId);
+    if (!tmdbId) {
+      return res.status(400).json({ error: "tmdbId is required" });
     }
     const series = await MonitoredSeries.findOne({ where: { userId, tmdbId } });
     res.json({ success: true, isMonitored: !!series, series });
@@ -118,9 +120,10 @@ exports.isSeriesMonitored = async (req, res) => {
 
 exports.checkEpisodesExist = async (req, res) => {
   try {
-    const { userId, title, episodes } = req.body;
-    if (!userId || !title) {
-      return res.status(400).json({ error: "userId and title are required" });
+    const { title, episodes } = req.body;
+    const userId = resolveMonitoredUserId(req, req.body?.userId);
+    if (!title) {
+      return res.status(400).json({ error: "title is required" });
     }
     const probe = await probeSeriesEpisodes(userId, { title, episodes: episodes || [] });
     res.json({ success: true, ...probe });
@@ -135,6 +138,9 @@ exports.grabMonitoredSeries = async (req, res) => {
     const series = await MonitoredSeries.findByPk(req.params.id);
     if (!series) {
       return res.status(404).json({ error: "Series not found" });
+    }
+    if (denyUnlessOwnerOrAdmin(req, res, series.userId, "Not authorized to grab for this series")) {
+      return;
     }
     const result = await processMonitoredSeries(series, {
       forceSearch: true,

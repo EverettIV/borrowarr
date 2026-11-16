@@ -72,7 +72,7 @@ export default function Home() {
       icon: <Database className="w-8 h-8" />,
       title: "Indexer Management",
       description:
-        "Connect unlimited torrent and NZB indexers. Test, configure, and prioritize with ease.",
+        "Connect unlimited BitTorrent and Usenet indexers. Test, configure, and prioritize with ease.",
       page: "/pages/indexers",
     },
     {
@@ -86,14 +86,14 @@ export default function Home() {
       icon: <MonitorPlay className="w-8 h-8" />,
       title: "Smart Monitoring",
       description:
-        "Automated tracking and downloading. Set quality profiles and let BorrowArr handle the rest.",
+        "Automated tracking and release search. Set quality profiles and let BorrowArr handle the rest.",
       page: "/pages/monitored",
     },
     {
       icon: <History className="w-8 h-8" />,
-      title: "Download History",
+      title: "Activity History",
       description:
-        "Track everything you've downloaded. Complete transparency and organization.",
+        "Track grabs, imports, and client activity. Complete transparency and organization.",
       page: "/pages/history",
     },
     {
@@ -121,7 +121,7 @@ export default function Home() {
       icon: <BarChart3 className="w-8 h-8" />,
       title: "Statistics & Insights",
       description:
-        "Detailed analytics on your downloads, storage, and activity.",
+        "Detailed analytics on your library, storage, and activity.",
       page: "/pages/stats",
     },
     {
@@ -145,7 +145,7 @@ export default function Home() {
       icon: <Rocket className="w-12 h-12" />,
       title: "Lightning Fast Setup",
       description:
-        "Get up and running in minutes, not hours. Connect your indexers, add your download clients, and start discovering content immediately.",
+        "Get up and running in minutes, not hours. Connect your indexers, add your download clients, and start building your library.",
       highlight: "5 Minute Setup",
     },
     {
@@ -157,10 +157,10 @@ export default function Home() {
     },
     {
       icon: <Shield className="w-12 h-12" />,
-      title: "Completely Legal",
+      title: "Neutral by Design",
       description:
-        "BorrowArr is just a tool. You bring your own indexers and download clients. We provide the interface, you control the content. Fully compliant and transparent.",
-      highlight: "Legal & Transparent",
+        "BorrowArr is management software only. You bring your own indexers and download clients. We provide the interface; you choose and operate your integrations.",
+      highlight: "You Stay in Control",
     },
   ];
 
@@ -300,7 +300,7 @@ export default function Home() {
                           size="sm"
                           variant="flat"
                         >
-                          Downloads
+                          Clients
                         </Chip>
                       </div>
                     </div>
@@ -324,7 +324,7 @@ export default function Home() {
               </div>
               <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/10 border border-secondary/30 text-secondary hover-lift">
                 <Check className="w-4 h-4" />
-                <span>100% Legal</span>
+                <span>Neutral Tool</span>
               </div>
               <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-secondary/10 border border-secondary/30 text-secondary hover-lift">
                 <Check className="w-4 h-4" />
@@ -385,25 +385,24 @@ export default function Home() {
                 <p className="text-foreground/80 text-lg leading-relaxed mb-6">
                   Connect your favorite{" "}
                   <strong className="text-secondary">
-                    torrent and NZB indexers
+                    BitTorrent and Usenet indexers
                   </strong>
                   , configure your{" "}
                   <strong className="text-secondary">download clients</strong>{" "}
-                  (qBittorrent, Transmission, SABnzbd, etc.), and browse content
-                  with a gorgeous Netflix-inspired interface powered by TMDB.
-                  Search across all your indexers simultaneously, monitor movies
-                  and TV shows for automatic downloads, manage your media
-                  library with Plex integration, and track everything in one
+                  (qBittorrent, Transmission, SABnzbd, etc.), and browse TMDb
+                  metadata with a Netflix-inspired interface. Search across your
+                  indexers, monitor titles with quality profiles, import into
+                  your library with Plex integration, and track activity in one
                   unified dashboard.
                 </p>
                 <p className="text-foreground/80 text-lg leading-relaxed">
                   <strong className="text-secondary">
-                    100% legal, 100% transparent, 100% yours.
+                    Transparent, self-hosted, and yours.
                   </strong>{" "}
-                  BorrowArr is just a tool—you provide your own indexers and
-                  download clients. It runs entirely on your infrastructure,
-                  ensuring complete privacy and control. Whether you self-host
-                  or use our managed platform, your data stays yours.
+                  BorrowArr is management software—you provide your own
+                  indexers and download clients. It runs on your
+                  infrastructure. Whether you self-host or use a managed
+                  platform, your configuration and data stay under your control.
                 </p>
               </div>
             </div>
@@ -514,7 +513,7 @@ export default function Home() {
                     Connect Your Sources
                   </h3>
                   <p className="text-foreground/70 text-lg group-hover:text-foreground/90 transition-colors leading-relaxed">
-                    Add your torrent and NZB indexers, then connect your
+                    Add your BitTorrent and Usenet indexers, then connect your
                     download clients like qBittorrent, Transmission, or SABnzbd.
                     BorrowArr supports unlimited indexers and clients, giving
                     you complete flexibility.
@@ -545,14 +544,13 @@ export default function Home() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-2xl font-bold mb-3 text-foreground group-hover:text-secondary transition-colors">
-                    Automated Downloads
+                    Automated Import
                   </h3>
                   <p className="text-foreground/70 text-lg group-hover:text-foreground/90 transition-colors leading-relaxed">
-                    BorrowArr automatically searches all your indexers for the
-                    best quality releases, sends them to your download clients,
-                    and tracks everything in your history. Monitor progress,
-                    manage your library, and enjoy your content—all from one
-                    place.
+                    BorrowArr can search your indexers for releases that match
+                    your quality profiles, queue grabs in your download clients,
+                    and record activity in history. Monitor progress and manage
+                    your library from one place.
                   </p>
                 </div>
               </div>
@@ -705,7 +703,7 @@ export default function Home() {
             <div className="mb-8">
               <Shield className="w-20 h-20 text-secondary mx-auto mb-6" />
               <h2 className="text-3xl sm:text-4xl font-bold mb-6 text-gradient-animate">
-                100% Legal & Transparent
+                Disclaimer
               </h2>
             </div>
             <div className="bg-content2/50 backdrop-blur-xl rounded-3xl p-8 border border-secondary/20">
@@ -732,7 +730,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-center gap-2 text-secondary">
                   <Shield className="w-5 h-5" />
-                  <span className="font-semibold">Legally Compliant</span>
+                  <span className="font-semibold">No Hosted Media</span>
                 </div>
                 <div className="flex items-center gap-2 text-secondary">
                   <CheckCircle2 className="w-5 h-5" />

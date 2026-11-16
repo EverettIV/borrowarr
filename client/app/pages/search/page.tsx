@@ -19,6 +19,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
+import { formatProtocolLabel } from "@/lib/formatProtocol";
 import "../../../styles/Search.scss";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
@@ -361,7 +362,7 @@ const Search = () => {
 
   const handleGrabRelease = useCallback(async (result: SearchResult) => {
     if (!result.downloadUrl) {
-      alert("No download URL available for this release");
+      alert("No grab URL available for this release");
       return;
     }
 
@@ -492,7 +493,7 @@ const Search = () => {
 
   const handleCopyMagnetLink = useCallback(async (result: SearchResult) => {
     if (!result.downloadUrl) {
-      alert("No download URL available for this release");
+      alert("No grab URL available for this release");
       return;
     }
 
@@ -556,7 +557,7 @@ const Search = () => {
         description={
           results.length > 0
             ? `${results.length} results found`
-            : "Search torrents across all your indexers"
+            : "Search releases across your configured indexers"
         }
         icon={<SearchIcon className="h-6 w-6" />}
         title={searchQuery ? `Search: "${searchQuery}"` : "Search Indexers"}
@@ -573,7 +574,7 @@ const Search = () => {
               setQuery(e.target.value)
             }
             onKeyPress={handleKeyPress}
-            placeholder="Search torrents (e.g., 'Shrek 2001', 'The Matrix')..."
+            placeholder="Search by title (e.g., 'Shrek 2001', 'The Matrix')..."
             size="lg"
             startContent={<SearchIcon className="text-secondary" size={20} />}
             value={query}
@@ -677,7 +678,7 @@ const Search = () => {
                         size="sm"
                         variant="flat"
                       >
-                        Torrents Only
+                        BitTorrent only
                       </Button>
                     )}
                     {nzbIndexers.length > 0 && (
@@ -713,7 +714,7 @@ const Search = () => {
                   {torrentIndexers.length > 0 && (
                     <div>
                       <div className="text-xs font-semibold text-foreground/60 mb-2 uppercase tracking-wide">
-                        Torrent Indexers ({torrentIndexers.length})
+                        BitTorrent Indexers ({torrentIndexers.length})
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {torrentIndexers.map((indexer) => {
@@ -946,7 +947,7 @@ const Search = () => {
                             size="sm"
                             variant="flat"
                           >
-                            {result.protocol.toUpperCase()}
+                            {formatProtocolLabel(result.protocol)}
                           </Chip>
                         )}
                       </div>
@@ -969,7 +970,7 @@ const Search = () => {
                 No results found
               </p>
               <p className="text-foreground/60 text-sm max-w-md">
-                No torrents found for &quot;{searchQuery}&quot;. Try a different
+                No releases found for &quot;{searchQuery}&quot;. Try a different
                 search term or select more indexers.
               </p>
             </div>

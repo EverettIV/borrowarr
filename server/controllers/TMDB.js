@@ -310,6 +310,64 @@ exports.getPopularTVShows = async (req, res) => {
 };
 
 /**
+ * Get top-rated movies
+ */
+exports.getTopRatedMovies = async (req, res) => {
+  try {
+    const { page } = req.query;
+    const results = await tmdbService.getTopRatedMovies(parseInt(page) || 1);
+
+    if (results.success && results.results) {
+      const { movieGenres } = await getGenreLists();
+      results.results = results.results.map((movie) => ({
+        ...movie,
+        posterUrl: tmdbService.getPosterUrl(movie.poster_path, 'w500'),
+        backdropUrl: tmdbService.getBackdropUrl(movie.backdrop_path, 'w1280'),
+        genres: getGenreNames(movie.genre_ids, movieGenres),
+        language: movie.original_language ? movie.original_language.toUpperCase() : null,
+      }));
+    }
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error in getTopRatedMovies controller:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Get top-rated TV shows
+ */
+exports.getTopRatedTVShows = async (req, res) => {
+  try {
+    const { page } = req.query;
+    const results = await tmdbService.getTopRatedTVShows(parseInt(page) || 1);
+
+    if (results.success && results.results) {
+      const { tvGenres } = await getGenreLists();
+      results.results = results.results.map((tv) => ({
+        ...tv,
+        posterUrl: tmdbService.getPosterUrl(tv.poster_path, 'w500'),
+        backdropUrl: tmdbService.getBackdropUrl(tv.backdrop_path, 'w1280'),
+        genres: getGenreNames(tv.genre_ids, tvGenres),
+        language: tv.original_language ? tv.original_language.toUpperCase() : null,
+      }));
+    }
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error in getTopRatedTVShows controller:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal server error',
+    });
+  }
+};
+
+/**
  * Get trending movies
  */
 exports.getTrendingMovies = async (req, res) => {

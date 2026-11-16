@@ -19,7 +19,7 @@ function summarizeMovieAction({ probe, processResult, autoDownload, isUpdate }) 
     return {
       action: 'grabbed',
       message: isUpdate
-        ? `${prefix}; download queued in your client (${processResult.grab.torrentTitle})`
+        ? `${prefix}; grab queued in your download client (${processResult.grab.torrentTitle})`
         : `Added and grab started: ${processResult.grab.torrentTitle}`,
     };
   }
@@ -53,13 +53,13 @@ function summarizeMovieAction({ probe, processResult, autoDownload, isUpdate }) 
     };
   }
   if (processResult?.sync?.wanted && autoDownload) {
-    if (processResult?.message?.includes('No torrents')) {
+    if (processResult?.message?.includes('No releases')) {
       return { action: 'no_releases', message: 'On watch list; no matching releases right now' };
     }
     return { action: 'monitoring', message: 'On watch list; will retry automatically' };
   }
   if (!autoDownload) {
-    return { action: 'monitoring', message: 'On watch list (auto-download off)' };
+    return { action: 'monitoring', message: 'On watch list (Automatic Grab off)' };
   }
   return { action: 'monitoring', message: `${isUpdate ? 'Updated' : 'Added'} to monitoring` };
 }
@@ -312,7 +312,7 @@ async function addMonitoredSeries(body) {
     action = 'grabbed';
     message = `Grab started for ${grabbed} episode(s)`;
   } else if (!qs.autoDownload) {
-    message += ' (auto-download off)';
+    message += ' (Automatic Grab off)';
   }
 
   await logMonitoring(userId, {

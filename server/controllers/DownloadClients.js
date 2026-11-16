@@ -1,8 +1,14 @@
 const DownloadClients = require("../models/DownloadClients");
 const History = require("../models/History");
 const { getAllDownloadClients, getDownloadClientsByProtocol, getDownloadClientDefinition } = require("../data/downloadClientDefinitions");
-
-const canManageDownloadClients = (user) => Boolean(user?.permissions?.admin);
+const {
+  canManageDownloadClients,
+  sanitizeDownloadClientForUser,
+} = require("../utils/downloadClientHelpers");
+const {
+  validateGrabDownloadUrl,
+  GRAB_HTTP_FETCH_OPTIONS,
+} = require("../utils/grabUrlSecurity");
 
 /**
  * Test a download client - CENTRALIZED FUNCTION
@@ -182,7 +188,7 @@ exports.createDownloadClient = async (req, res) => {
       userId: req.userId,
     });
 
-    res.status(201).json(newClient.toJSON());
+    res.status(201).json(sanitizeDownloadClientForUser(newClient, req.user));
   } catch (err) {
     console.error("Error creating download client:", err);
     res.status(500).json({ error: err.message });
@@ -197,7 +203,7 @@ exports.readDownloadClients = async (req, res) => {
     });
 
     res.json({
-      data: clients.map(c => c.toJSON()),
+      data: clients.map((c) => sanitizeDownloadClientForUser(c, req.user)),
       total: clients.length,
     });
   } catch (err) {
@@ -215,7 +221,7 @@ exports.readDownloadClientFromID = async (req, res) => {
       return res.status(404).json({ error: "Download client not found" });
     }
 
-    res.json(client.toJSON());
+    res.json(sanitizeDownloadClientForUser(client, req.user));
   } catch (err) {
     console.error("Error reading download client:", err);
     res.status(500).json({ error: err.message });
@@ -257,7 +263,7 @@ exports.updateDownloadClient = async (req, res) => {
       tags: tags !== undefined ? tags : client.tags,
     });
 
-    res.json(client.toJSON());
+    res.json(sanitizeDownloadClientForUser(client, req.user));
   } catch (err) {
     console.error("Error updating download client:", err);
     res.status(500).json({ error: err.message });
@@ -400,6 +406,13 @@ exports.grabRelease = async (req, res) => {
       return res.status(400).json({ error: "Download URL or magnet link is required" });
     }
 
+    const urlCheck = await validateGrabDownloadUrl(downloadUrl, {
+      trustedSource: Boolean(req.trustedGrabUrl),
+    });
+    if (!urlCheck.ok) {
+      return res.status(400).json({ error: urlCheck.error });
+    }
+
     // Determine protocol
     let determinedProtocol = protocol;
     if (!determinedProtocol) {
@@ -499,10 +512,7 @@ exports.grabRelease = async (req, res) => {
         if (isDirectFileUrl) {
           try {
             const axios = require("axios");
-            const response = await axios.get(downloadUrl, { 
-              responseType: "arraybuffer",
-              timeout: 30000,
-            });
+            const response = await axios.get(downloadUrl, GRAB_HTTP_FETCH_OPTIONS);
             const filename = downloadUrl.split("/").pop() || "download.nzb";
             const cleanFilename = filename.split("?")[0];
             result = await clientProxy.addNzbFromFile(cleanFilename, response.data);
@@ -522,7 +532,7 @@ exports.grabRelease = async (req, res) => {
         result = await clientProxy.addTorrentFromMagnet(downloadUrl);
       } else if (downloadUrl.startsWith("http://") || downloadUrl.startsWith("https://")) {
         const axios = require("axios");
-        const response = await axios.get(downloadUrl, { responseType: "arraybuffer" });
+        const response = await axios.get(downloadUrl, GRAB_HTTP_FETCH_OPTIONS);
         const filename = downloadUrl.split("/").pop() || "torrent.torrent";
         result = await clientProxy.addTorrentFromFile(filename, response.data);
       } else {
@@ -620,6 +630,7 @@ exports.grabReleaseInternal = async (body, userId) => {
     const req = {
       body,
       userId,
+      trustedGrabUrl: true,
     };
 
     let statusCode = 200;

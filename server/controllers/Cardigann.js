@@ -222,10 +222,17 @@ const getStats = async (req, res) => {
 };
 
 /**
- * Reload definitions (development only)
+ * Reload definitions (admin only)
  */
 const reload = async (req, res) => {
   try {
+    if (!req.user?.permissions?.admin) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only admins can reload Cardigann definitions',
+      });
+    }
+
     cardigann.reload();
 
     res.json({

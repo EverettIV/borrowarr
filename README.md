@@ -1,18 +1,20 @@
 # BorrowArr
 
-A self-hosted media management and automation platform that helps you discover, monitor, and download movies and TV shows. BorrowArr integrates with torrent indexers, download clients, and media services like Plex and TMDb to provide a unified media management experience.
+BorrowArr is a self-hosted **movie and TV collection manager** for Usenet and BitTorrent users. It monitors titles you add, searches your configured indexers for releases, and interfaces with download clients to grab, sort, rename, and import files into your library. BorrowArr integrates with Torznab/Newznab indexers, download clients, Plex, and TMDb metadata.
+
+BorrowArr does **not** provide, host, or index content. You connect your own indexers and download clients and are responsible for compliance with applicable law and third-party terms of service.
 
 ## Features
 
 - **Media Discovery**: Browse and search for movies and TV shows using TMDb integration
 - **Curated Lists**: Access featured lists from sources like Letterboxd and TMDb
-- **Torrent Indexer Integration**: Search across multiple torrent indexers using Torznab/Newznab APIs or custom scrapers (Cardigann-style YAML definitions)
-- **Download Client Support**: Send downloads to your preferred torrent client (qBittorrent, Transmission, etc.)
-- **Automated Monitoring**: Monitor movies and TV series for new releases and automatic downloading
+- **Indexer Integration**: Search across Torznab/Newznab indexers and Cardigann-style YAML definitions
+- **Download Client Support**: Integrate qBittorrent, Transmission, SABnzbd, NZBGet, and similar clients
+- **Automated Monitoring**: Monitor movies and TV series for new releases with quality profiles
 - **Plex Integration**: Connect to Plex to view your library and get recommendations
-- **Media Requests**: Allow users to request content with approval workflows
+- **Media Requests**: Request workflows with optional approval
 - **User Management**: Multi-user support with role-based permissions
-- **Parental Guides**: IMDb parental guide information for content
+- **Parental Guides**: IMDb parental guide information
 - **File Management**: Automatic file renaming and organization
 - **Mobile Support**: Capacitor-based iOS/Android app support (in development)
 
@@ -51,7 +53,7 @@ borrowarr/
 │   │   ├── downloadClients/   # Download client integrations
 │   │   ├── listProviders/     # TMDb list providers
 │   │   └── letter-box-scrapper/ # Letterboxd scraper
-│   ├── scrapers/              # Cardigann-style torrent scrapers
+│   ├── scrapers/              # Cardigann-style indexer definitions
 │   │   ├── definitions/       # YAML indexer definitions
 │   │   └── engine/            # Scraper engine
 │   ├── middleware/            # Express middleware (auth, etc.)
@@ -133,8 +135,8 @@ Create a `.env` file in the `/server` directory:
 | `JWT_REFRESH_SECRET` | **Yes** | - | Secret key for signing JWT refresh tokens |
 | `JWT_ACCESS_EXPIRY` | No | `15m` | Access token expiry duration |
 | `JWT_REFRESH_EXPIRY` | No | `7d` | Refresh token expiry duration |
-| `TMDB_API` | No | (built-in) | TMDb API key for movie/TV metadata |
-| `TMDB_API_READ` | No | (built-in) | TMDb Read Access Token |
+| `TMDB_API` | No | (bundled demo key) | **Your own** TMDb v3 API key (recommended for LAN/production). A shared demo key is used when unset so first-run works; rate limits are stricter when the demo key is active. |
+| `TMDB_API_READ` | No | (bundled demo token) | Optional TMDb v4 read token; override in production if you use one. |
 | `PROWLARR_URL` | No | - | Prowlarr instance URL for indexer proxy |
 | `PROWLARR_API_KEY` | No | - | Prowlarr API key |
 | `FLARESOLVERR_URL` | No | `http://localhost:8191` | FlareSolverr URL for Cloudflare bypass |
@@ -206,9 +208,9 @@ The server exposes the following main API routes:
 | `/api/auth` | Authentication (login, register, refresh tokens) |
 | `/api/Users` | User management |
 | `/api/Search` | Search across configured indexers |
-| `/api/Indexers` | Manage torrent indexers |
+| `/api/Indexers` | Manage indexers |
 | `/api/DownloadClients` | Manage download clients |
-| `/api/TMDB` | TMDb movie/TV data proxy |
+| `/api/TMDB` | TMDb movie/TV data proxy (**login required**; server-side cache + per-user rate limits) |
 | `/api/MonitoredMovies` | Movie monitoring and automation |
 | `/api/MonitoredSeries` | TV series monitoring and automation |
 | `/api/Settings` | Application settings |
@@ -224,7 +226,7 @@ The server exposes the following main API routes:
 
 ## Adding Custom Indexers
 
-BorrowArr supports custom torrent indexer definitions using YAML files (Cardigann-style). See `/server/scrapers/README.md` for detailed documentation on creating custom indexer definitions.
+BorrowArr supports custom indexer definitions using YAML files (Cardigann-style). See `/server/scrapers/README.md` for detailed documentation on creating custom indexer definitions.
 
 Example YAML definition location: `/server/scrapers/definitions/`
 
@@ -293,7 +295,7 @@ Contributions are welcome! Please follow these guidelines:
 - `/server/scrapers/README.md` - Custom scraper development
 - `/server/services/INDEXER_SEARCH_README.md` - Indexer search service documentation
 - `/server/services/letter-box-scrapper/README.md` - Letterboxd integration
-- `/client/VALIDATION_REQUIREMENTS.md` - Content download validation requirements
+- `/client/VALIDATION_REQUIREMENTS.md` - Pre-flight checks before queuing releases
 
 ## License
 
@@ -310,4 +312,6 @@ License: TBD
 
 ---
 
-**Note**: This project is intended for personal use and educational purposes. Please respect copyright laws and the terms of service of any integrated services.
+## Disclaimer
+
+BorrowArr is neutral management software, similar in role to other *Arr applications. It does not supply media, operate indexers, or run download clients for you. How you configure and use indexers and clients is your responsibility. The authors make no warranties and accept no liability for misuse. Use only with content and services you have the right to access, and in accordance with applicable law and third-party terms of service.

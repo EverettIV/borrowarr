@@ -9,7 +9,7 @@ Prowlarr stores indexer definitions in **Cardigann YAML files**. Each indexer de
 ### Prowlarr Indexer Definitions Location
 
 1. **GitHub Repository**: https://github.com/Prowlarr/Indexers
-   - Each indexer has a YAML file (e.g., `thepiratebay.yml`)
+   - Each indexer has a YAML file (e.g., `limetorrents.yml`)
    - The `links` field contains the base URLs
 
 2. **Local Prowlarr Installation**:
@@ -20,10 +20,9 @@ Prowlarr stores indexer definitions in **Cardigann YAML files**. Each indexer de
 
 ```yaml
 links:
-  - https://thepiratebay.org/
-  - https://thepiratebay10.xyz/
-  - https://thepiratebay.unblockninja.com/
-  # ... more URLs
+  - https://indexer.example.org/
+  - https://indexer-mirror.example.org/
+  # ... more URLs from the upstream definition
 ```
 
 ## How to Extract Base URLs from Prowlarr
@@ -37,7 +36,7 @@ If you have a running Prowlarr instance, you can query its API:
 curl http://localhost:9696/api/v1/indexer/schema
 
 # Get a specific indexer's definition
-curl http://localhost:9696/api/v1/indexer/schema?implementation=Cardigann&configContract=CardigannSettings&name=thepiratebay
+curl "http://localhost:9696/api/v1/indexer/schema?implementation=Cardigann&configContract=CardigannSettings&name=limetorrents"
 ```
 
 The response will include `indexerUrls` and `legacyUrls` arrays.

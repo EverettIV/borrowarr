@@ -28,10 +28,10 @@ import { ScrollToTop } from "@/components/ScrollToTop";
 import { PlexBadge } from "@/components/PlexBadge";
 import { usePlexLibrary } from "@/hooks/usePlexLibrary";
 import { useAuth } from "@/context/AuthContext";
+import { tmdbRequestConfig } from "@/lib/tmdbApi";
 import "@/styles/FeaturedLists.scss";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
-const TMDB_API_KEY = "02ad41cf73db27ff46061d6f52a97342";
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 
 interface TMDBMedia {
@@ -324,28 +324,60 @@ const FeaturedListDetail = () => {
       const maxPages = 13; // Fetch up to 13 pages (260 items) - TMDB returns 20 per page
       let allMedia: TMDBMedia[] = [];
 
-      // Fetch all pages in parallel
+      const resolveBorrowarrTmdbRequest = (page: number) => {
+        const params: Record<string, string | number> = { page };
+        let url = `${API_BASE_URL}/api/TMDB/popular/movies`;
+
+        switch (endpoint) {
+          case "/movie/popular":
+            url = `${API_BASE_URL}/api/TMDB/popular/movies`;
+            break;
+          case "/movie/upcoming":
+            url = `${API_BASE_URL}/api/TMDB/upcoming/movies`;
+            break;
+          case "/trending/movie/week":
+            url = `${API_BASE_URL}/api/TMDB/trending/movies`;
+            params.timeWindow = "week";
+            break;
+          case "/movie/top_rated":
+            url = `${API_BASE_URL}/api/TMDB/top-rated/movies`;
+            break;
+          case "/tv/top_rated":
+            url = `${API_BASE_URL}/api/TMDB/top-rated/tv`;
+            break;
+          case "/discover/movie":
+            url = `${API_BASE_URL}/api/TMDB/discover/movies`;
+            if (extraParams.with_genres) params.genres = extraParams.with_genres;
+            if (extraParams.sort_by) params.sortBy = extraParams.sort_by;
+            if (extraParams["vote_count.gte"]) {
+              params.voteCountMin = extraParams["vote_count.gte"];
+            }
+            break;
+          default:
+            break;
+        }
+
+        return { url, params };
+      };
+
+      // Fetch all pages in parallel (via authenticated Borrowarr proxy)
       const pageNumbers = Array.from({ length: maxPages }, (_, i) => i + 1);
       const fetchPromises = pageNumbers.map(async (page) => {
-        const params: Record<string, string> = {
-          api_key: TMDB_API_KEY,
-          page: String(page),
-          language: "en-US",
-          ...extraParams,
-        };
-
-        const urlParams = new URLSearchParams(params);
-        const response = await fetch(
-          `https://api.themoviedb.org/3${endpoint}?${urlParams}`,
+        const { url, params } = resolveBorrowarrTmdbRequest(page);
+        const response = await axios.get(
+          url,
+          tmdbRequestConfig(undefined, { params }),
         );
-        const data = await response.json();
+        const data = response.data;
 
-        if (data.results) {
+        if (data?.results) {
           return data.results.map((item: any) => ({
             ...item,
-            posterUrl: item.poster_path
-              ? `${TMDB_IMAGE_BASE_URL}${item.poster_path}`
-              : null,
+            posterUrl:
+              item.posterUrl ||
+              (item.poster_path
+                ? `${TMDB_IMAGE_BASE_URL}${item.poster_path}`
+                : null),
             media_type: mediaType,
           }));
         }
@@ -736,10 +768,10 @@ const FeaturedListDetail = () => {
             onClick={(e) => handleQuickDownload(item, e)}
             title={
               isDownloaded
-                ? "Downloaded"
+                ? "Added"
                 : isDownloading
-                  ? "Downloading..."
-                  : "Quick Download"
+                  ? "Queueing..."
+                  : "Add to Library"
             }
           >
             {isDownloading ? (

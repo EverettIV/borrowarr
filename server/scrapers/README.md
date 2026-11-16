@@ -1,6 +1,6 @@
 # BorrowArr Scraping System
 
-A powerful, extensible web scraping engine for torrent indexers, inspired by Prowlarr's Cardigann system but built in Node.js.
+A powerful, extensible web scraping engine for Torznab-compatible indexers, inspired by Prowlarr's Cardigann system but built in Node.js.
 
 ## Architecture
 

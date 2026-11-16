@@ -303,7 +303,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
     if (!user) {
       showNotification(
         "Sign In Required",
-        'Please sign in to download content. Click on "Login" in the navigation menu to get started.',
+        'Please sign in to add titles to your library. Click on "Login" in the navigation menu to get started.',
         "warning",
       );
       return false;
@@ -316,7 +316,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
     if (!hasIndexers) {
       showNotification(
         "Indexers Required",
-        "You need to configure at least one indexer before downloading content. Go to Settings → Indexers to add an indexer.",
+        "You need to configure at least one indexer before queuing releases. Go to Settings → Indexers to add an indexer.",
         "warning",
       );
       return false;
@@ -325,7 +325,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
     if (!hasDownloadClients) {
       showNotification(
         "Download Client Required",
-        "You need to configure a download client before downloading content. Go to Settings → Download Clients to add a client.",
+        "You need to configure a download client before queuing releases. Go to Settings → Download Clients to add a client.",
         "warning",
       );
       return false;
@@ -721,7 +721,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
             backdropPath: movieDetails?.backdrop_path || null,
             releaseDate: media?.release_date || null,
             qualityProfile,
-            requestNote: `Requested from discover torrents list. Release: ${torrent.title} | Indexer: ${torrent.indexer}`,
+            requestNote: `Requested from discover release list. Release: ${torrent.title} | Indexer: ${torrent.indexer}`,
           },
           {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -792,11 +792,11 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
           });
         }, 3000);
       } else {
-        throw new Error(response.data.error || "Failed to download");
+        throw new Error(response.data.error || "Failed to queue release");
       }
     } catch (error: any) {
       const errorMsg =
-        error.response?.data?.error || error.message || "Download failed";
+        error.response?.data?.error || error.message || "Action failed";
       setDownloadError((prev) => new Map(prev).set(torrent.id, errorMsg));
       setTimeout(() => {
         setDownloadError((prev) => {
@@ -859,7 +859,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
     if (isTV) {
       showNotification(
         "Not Supported",
-        "TV show monitoring is not yet implemented. Please use manual download for now.",
+        "TV series monitoring uses the series modal. Open a show to pick seasons or episodes.",
         "info",
       );
       return;
@@ -973,7 +973,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
         : error instanceof Error
           ? error.message
           : "Failed to add movie";
-      showNotification("Download Error", errorMsg || "Failed to add movie", "error");
+      showNotification("Action Failed", errorMsg || "Failed to add movie", "error");
     } finally {
       setAddingMovie(false);
     }
@@ -1540,7 +1540,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                             target="_blank"
                             variant="flat"
                           >
-                            Search Torrents
+                            Search Releases
                           </Button>
                         </div>
                       </div>
@@ -1882,7 +1882,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                       <p className="text-xs text-default-500">
                         {user?.permissions?.auto_approve ||
                         user?.permissions?.admin
-                          ? '💡 Click "Monitor Movie" to add this movie to your library. If auto-download is enabled and torrents are found, the best torrent matching your quality profile will be downloaded automatically.'
+                          ? '💡 Click "Monitor Movie" to add this movie to your library. If automatic search on add is enabled and releases are found, the best matching release will be sent to your download client automatically.'
                           : '💡 Click "Request Movie" to submit a request for admin approval. Once approved, it will be added to your monitored list.'}
                       </p>
                     </div>
@@ -1893,7 +1893,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-xl font-semibold">
-                      Available Torrents
+                      Available Releases
                     </h3>
                     {hasSearchedTorrents && torrents.length > 0 && (
                       <Chip color="secondary" size="sm" variant="flat">
@@ -1909,7 +1909,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                         <div className="flex flex-col items-center justify-center text-center space-y-4">
                           <Spinner color="secondary" size="lg" />
                           <p className="text-sm text-default-500">
-                            Searching indexers for torrents...
+                            Searching indexers for releases...
                           </p>
                         </div>
                       </CardBody>
@@ -1923,7 +1923,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                           </div>
                           <div>
                             <h4 className="text-lg font-semibold text-foreground mb-1">
-                              Search for Torrents
+                              Search for Releases
                             </h4>
                             <p className="text-sm text-default-500 max-w-sm">
                               Click the button below to search indexers for
@@ -2005,8 +2005,8 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                                 }
                               >
                                 {downloadSuccess.has(torrent.id)
-                                  ? "Downloaded"
-                                  : "Download"}
+                                  ? "Queued"
+                                  : "Grab"}
                               </Button>
                             </div>
                           </CardBody>
@@ -2017,7 +2017,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                     <Card className="bg-default-50">
                       <CardBody className="text-center py-8">
                         <p className="text-default-500">
-                          No torrents found for this movie
+                          No releases found for this movie
                         </p>
                         <Button
                           className="mt-4"

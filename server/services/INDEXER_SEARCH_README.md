@@ -12,15 +12,14 @@ This service handles searching across all configured indexers, supporting multip
   - API key (optional, stored in `password` or `username` field)
 - **Example**: Most private trackers, Jackett instances
 
-### 2. **The Pirate Bay** (Special Handling)
-- **How it works**: Uses `apibay.org` JSON API (more reliable than scraping)
-- **Base URL format**: `https://thepiratebay.org/` or any TPB URL
-- **Requirements**: None (public indexer)
-- **Fallback**: If API fails, attempts HTML scraping
+### 2. **JSON API indexers** (Special handling)
+- **How it works**: Some public indexers expose a JSON search API; BorrowArr can use that path when configured
+- **Requirements**: Indexer must be added like any other source you operate or are authorized to use
+- **Fallback**: If the API fails, HTML scraping may be attempted when supported
 
 ### 3. **Cardigann Indexers** (Requires Proxy or YAML)
 - **How it works**: Cardigann indexers need YAML definition files to scrape
-- **Base URL format**: Direct site URL (e.g., `https://kickass.torrentsbay.org/`)
+- **Base URL format**: Direct site URL for the indexer you configure
 - **Limitations**: 
   - Cannot search directly without YAML definitions
   - Requires Prowlarr proxy OR YAML definition files
@@ -75,7 +74,7 @@ Comprehensive logging shows:
 ## Current Limitations
 
 1. **Cardigann Direct Scraping**: Not yet implemented (requires YAML definitions)
-2. **Custom Scrapers**: Only The Pirate Bay has custom scraping logic
+2. **Custom Scrapers**: A small set of indexers have bespoke JSON or HTML handling beyond Torznab
 3. **YAML Definitions**: Would need to be imported from Prowlarr's repository
 
 ## Recommendations

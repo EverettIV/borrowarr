@@ -30,7 +30,7 @@ async function searchAndGrabMovie(movie, userId, options = {}) {
 
   const torrents = await searchReleasesForMonitoring(searchQuery, ['2000']);
   if (torrents.length === 0) {
-    throw new Error('No torrents found');
+    throw new Error('No releases found');
   }
 
   const qs = await loadQualitySettings(userId);
@@ -43,7 +43,7 @@ async function searchAndGrabMovie(movie, userId, options = {}) {
 
   if (filteredTorrents.length === 0) {
     throw new Error(
-      `No torrents within quality range ${qs.minQuality}–${qs.maxQuality}`,
+      `No releases within quality range ${qs.minQuality}–${qs.maxQuality}`,
     );
   }
 
@@ -56,7 +56,7 @@ async function searchAndGrabMovie(movie, userId, options = {}) {
   });
   if (!bestTorrent) {
     throw new Error(
-      `No torrents matched "${movie.title}"${year ? ` (${year})` : ''} after filtering`,
+      `No releases matched "${movie.title}"${year ? ` (${year})` : ''} after filtering`,
     );
   }
 
@@ -94,7 +94,7 @@ async function searchAndGrabEpisode(series, seasonNumber, episodeNumber, userId,
 
   const torrents = await searchReleasesForMonitoring(searchQuery, ['5000']);
   if (torrents.length === 0) {
-    throw new Error('No torrents found for episode');
+    throw new Error('No releases found for episode');
   }
 
   const qs = await loadQualitySettings(userId);
@@ -107,7 +107,7 @@ async function searchAndGrabEpisode(series, seasonNumber, episodeNumber, userId,
 
   if (filteredTorrents.length === 0) {
     throw new Error(
-      `No torrents within quality range ${qs.minQuality}–${qs.maxQuality}`,
+      `No releases within quality range ${qs.minQuality}–${qs.maxQuality}`,
     );
   }
 
@@ -117,7 +117,7 @@ async function searchAndGrabEpisode(series, seasonNumber, episodeNumber, userId,
     preferSeedersInQualityRange: qs.preferSeedersInQualityRange,
   });
   if (!bestTorrent) {
-    throw new Error('No suitable torrent found after quality filtering');
+    throw new Error('No suitable release found after quality filtering');
   }
 
   const quality = detectQualityFromReleaseTitle(bestTorrent.title);

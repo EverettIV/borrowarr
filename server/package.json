@@ -4,9 +4,10 @@
   "description": "Auto-generated SQLite Node.js server",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/monitoredListHelpers.test.js test/monitoredRoutes.auth.test.js test/cardigannRoutes.auth.test.js test/tmdbRoutes.auth.test.js test/downloadClientHelpers.test.js test/grabUrlSecurity.test.js test/settingsBrowse.security.test.js test/downloadClients.security.test.js",
     "start": "nodemon index.js",
     "dev": "nodemon index.js",
+    "setup:env": "node config/loadEnv.js",
     "migrate:user-id": "node scripts/migrateAddUserId.js",
     "postinstall": "npm rebuild sqlite3 || echo 'Please run: npm rebuild sqlite3'"
   },

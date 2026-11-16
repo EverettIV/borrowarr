@@ -6,13 +6,18 @@ const {
   processMonitoredMovie,
   runUserMonitoringCycle,
 } = require("../services/monitoring");
-const { isMonitoringAdmin, withOwnerUsernames } = require("../utils/monitoredListHelpers");
+const {
+  isMonitoringAdmin,
+  withOwnerUsernames,
+  resolveMonitoredUserId,
+  denyUnlessOwnerOrAdmin,
+  applyMonitoredOwnerUpdates,
+} = require("../utils/monitoredListHelpers");
 
 exports.getMonitoredMovies = async (req, res) => {
   try {
     const isAdmin = isMonitoringAdmin(req.user);
     const { userId, scope } = req.query;
-    const requesterId = req.userId;
 
     let movies;
     if (scope === "all" && isAdmin) {
@@ -20,12 +25,9 @@ exports.getMonitoredMovies = async (req, res) => {
         order: [["createdAt", "DESC"]],
       });
     } else {
-      const targetUserId = userId || requesterId;
+      const targetUserId = resolveMonitoredUserId(req, userId);
       if (!targetUserId) {
         return res.status(400).json({ error: "userId is required" });
-      }
-      if (targetUserId !== requesterId && !isAdmin) {
-        return res.status(403).json({ error: "Not authorized to view this monitored list" });
       }
       movies = await MonitoredMovies.findAll({
         where: { userId: targetUserId },
@@ -47,8 +49,10 @@ exports.getMonitoredMovies = async (req, res) => {
 
 exports.addMonitoredMovie = async (req, res) => {
   try {
+    const userId = resolveMonitoredUserId(req, req.body?.userId);
     const result = await addMonitoredMovie({
       ...req.body,
+      userId,
       searchOnAdd: req.body.searchOnAdd !== false,
     });
     res.json(result);
@@ -65,7 +69,11 @@ exports.updateMonitoredMovie = async (req, res) => {
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
     }
-    await movie.update(req.body);
+    if (denyUnlessOwnerOrAdmin(req, res, movie.userId, "Not authorized to update this movie")) {
+      return;
+    }
+    const updates = applyMonitoredOwnerUpdates(req, req.body);
+    await movie.update(updates);
     res.json({ success: true, movie });
   } catch (error) {
     console.error("Error updating monitored movie:", error);
@@ -76,18 +84,12 @@ exports.updateMonitoredMovie = async (req, res) => {
 exports.removeMonitoredMovie = async (req, res) => {
   try {
     const { id } = req.params;
-    const { userId } = req.query;
     const movie = await MonitoredMovies.findByPk(id);
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
     }
-    const isAdmin = isMonitoringAdmin(req.user);
-    if (req.user) {
-      if (movie.userId !== req.userId && !isAdmin) {
-        return res.status(403).json({ error: "Not authorized to remove this movie" });
-      }
-    } else if (!userId || movie.userId !== userId) {
-      return res.status(403).json({ error: "Not authorized to remove this movie" });
+    if (denyUnlessOwnerOrAdmin(req, res, movie.userId, "Not authorized to remove this movie")) {
+      return;
     }
     await movie.destroy();
     res.json({ success: true, message: "Movie removed from monitoring" });
@@ -99,9 +101,10 @@ exports.removeMonitoredMovie = async (req, res) => {
 
 exports.isMovieMonitored = async (req, res) => {
   try {
-    const { userId, tmdbId } = req.query;
-    if (!userId || !tmdbId) {
-      return res.status(400).json({ error: "userId and tmdbId are required" });
+    const { tmdbId } = req.query;
+    const userId = resolveMonitoredUserId(req, req.query.userId);
+    if (!tmdbId) {
+      return res.status(400).json({ error: "tmdbId is required" });
     }
     const movie = await MonitoredMovies.findOne({ where: { userId, tmdbId } });
     res.json({ success: true, isMonitored: !!movie, movie });
@@ -116,6 +119,9 @@ exports.checkMovieFile = async (req, res) => {
     const movie = await MonitoredMovies.findByPk(req.params.id);
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
+    }
+    if (denyUnlessOwnerOrAdmin(req, res, movie.userId, "Not authorized")) {
+      return;
     }
     const result = await processMonitoredMovie(movie);
     res.json({ success: true, result });
@@ -146,12 +152,9 @@ exports.checkAllMovieFiles = async (req, res) => {
       return res.json({ success: true, scope: "all", results });
     }
 
-    const targetUserId = userId || req.userId;
+    const targetUserId = resolveMonitoredUserId(req, userId);
     if (!targetUserId) {
       return res.status(400).json({ error: "userId is required" });
-    }
-    if (targetUserId !== req.userId && !isAdmin) {
-      return res.status(403).json({ error: "Not authorized" });
     }
     const results = await runUserMonitoringCycle(targetUserId);
     res.json({ success: true, results });
@@ -163,9 +166,10 @@ exports.checkAllMovieFiles = async (req, res) => {
 
 exports.checkFileExists = async (req, res) => {
   try {
-    const { userId, title, releaseDate, tmdbId } = req.body;
-    if (!userId || !title) {
-      return res.status(400).json({ error: "userId and title are required" });
+    const { title, releaseDate, tmdbId } = req.body;
+    const userId = resolveMonitoredUserId(req, req.body?.userId);
+    if (!title) {
+      return res.status(400).json({ error: "title is required" });
     }
     const probe = await probeMovieLibrary(userId, { title, releaseDate, tmdbId });
     res.json({ success: true, ...probe, exists: probe.exists });
@@ -181,6 +185,9 @@ exports.grabMonitoredMovie = async (req, res) => {
     const movie = await MonitoredMovies.findByPk(req.params.id);
     if (!movie) {
       return res.status(404).json({ error: "Movie not found" });
+    }
+    if (denyUnlessOwnerOrAdmin(req, res, movie.userId, "Not authorized to grab for this movie")) {
+      return;
     }
     const result = await processMonitoredMovie(movie, { forceSearch: true, grabBudget: { remaining: 1 } });
     res.json({ success: true, result });
