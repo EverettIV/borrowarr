@@ -7,4 +7,5 @@ overseerr/
 Sonarr/
 prowlarr-scrapper/
 torrent-client/
-Indexers/
+# Local reference checkout at repo root only (not server/indexers).
+/Indexers/
