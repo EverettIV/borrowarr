@@ -165,7 +165,10 @@ const DownloadClients = () => {
       enabled: true,
       priority: 1,
       settings: defaultSettings,
-      categories: [],
+      categories: [
+        { category: "movie", clientCategory: "movie" },
+        { category: "tv", clientCategory: "tv" },
+      ],
     });
 
     setTestError(null);
@@ -963,35 +966,29 @@ const DownloadClients = () => {
                     "bg-content2 border border-secondary/20 hover:border-secondary/40",
                   label: "text-xs sm:text-sm",
                 }}
-                description="Category label for movies (e.g., 'movies', 'films')"
+                description="Category label for movies (e.g., 'movie', 'films')"
                 label="Movie Category"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   const value = e.target.value;
-                  const newCategories = [...(formData.categories || [])];
-                  const existingIndex = newCategories.findIndex(
-                    (c: any) => c.category === "movies",
+                  const newCategories = [...(formData.categories || [])].filter(
+                    (c: any) => c.category !== "movie" && c.category !== "movies",
                   );
 
-                  if (existingIndex >= 0) {
-                    if (value) {
-                      newCategories[existingIndex].clientCategory = value;
-                    } else {
-                      newCategories.splice(existingIndex, 1);
-                    }
-                  } else if (value) {
+                  if (value) {
                     newCategories.push({
-                      category: "movies",
+                      category: "movie",
                       clientCategory: value,
                     });
                   }
 
                   setFormData({ ...formData, categories: newCategories });
                 }}
-                placeholder="movies"
+                placeholder="movie"
                 size="sm"
                 value={
-                  formData.categories?.find((c: any) => c.category === "movies")
-                    ?.clientCategory || ""
+                  formData.categories?.find(
+                    (c: any) => c.category === "movie" || c.category === "movies",
+                  )?.clientCategory || "movie"
                 }
               />
 
@@ -1025,11 +1022,11 @@ const DownloadClients = () => {
 
                   setFormData({ ...formData, categories: newCategories });
                 }}
-                placeholder="tv shows"
+                placeholder="tv"
                 size="sm"
                 value={
                   formData.categories?.find((c: any) => c.category === "tv")
-                    ?.clientCategory || ""
+                    ?.clientCategory || "tv"
                 }
               />
 

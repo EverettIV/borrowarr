@@ -102,7 +102,7 @@ const buildApprovalSearch = (request) => {
     return {
       query: requestedRelease?.releaseName || (year ? `${request.title} ${year}` : request.title),
       categoryIds: [2000],
-      downloadMediaType: 'movies',
+      downloadMediaType: 'movie',
       preferredIndexer: requestedRelease?.indexer || null,
       requestedRelease,
     };

@@ -26,8 +26,48 @@ function sanitizeDownloadClientForUser(clientJson, user) {
   };
 }
 
+const DEFAULT_DOWNLOAD_CLIENT_CATEGORIES = [
+  { category: 'movie', clientCategory: 'movie' },
+  { category: 'tv', clientCategory: 'tv' },
+];
+
+function defaultDownloadClientCategories() {
+  return DEFAULT_DOWNLOAD_CLIENT_CATEGORIES.map((row) => ({ ...row }));
+}
+
+/**
+ * Canonical keys sent to download clients: `movie` | `tv`.
+ */
+function normalizeGrabMediaType(mediaType) {
+  if (mediaType == null || mediaType === '') return null;
+  const value = String(mediaType).toLowerCase().trim();
+  if (value === 'movie' || value === 'movies') return 'movie';
+  if (value === 'tv' || value === 'series') return 'tv';
+  return value;
+}
+
+/**
+ * Resolve qBittorrent/SAB category label from client config (supports legacy `movies` key).
+ */
+function resolveClientCategoryLabel(categories, mediaType) {
+  const key = normalizeGrabMediaType(mediaType);
+  if (!key) return null;
+
+  const list = Array.isArray(categories) ? categories : [];
+  const lookupKeys = key === 'movie' ? ['movie', 'movies'] : ['tv', 'series'];
+  for (const alias of lookupKeys) {
+    const row = list.find((c) => c?.category === alias && c.clientCategory);
+    if (row) return row.clientCategory;
+  }
+
+  return key;
+}
+
 module.exports = {
   canManageDownloadClients,
   sanitizeDownloadClientForUser,
   redactDownloadClientSettings,
+  defaultDownloadClientCategories,
+  normalizeGrabMediaType,
+  resolveClientCategoryLabel,
 };

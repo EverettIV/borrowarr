@@ -4,6 +4,9 @@ const { getAllDownloadClients, getDownloadClientsByProtocol, getDownloadClientDe
 const {
   canManageDownloadClients,
   sanitizeDownloadClientForUser,
+  defaultDownloadClientCategories,
+  normalizeGrabMediaType,
+  resolveClientCategoryLabel,
 } = require("../utils/downloadClientHelpers");
 const {
   validateGrabDownloadUrl,
@@ -183,7 +186,10 @@ exports.createDownloadClient = async (req, res) => {
       enabled: enabled !== undefined ? enabled : true,
       priority: priority || 1,
       settings: settings || {},
-      categories: categories || [],
+      categories:
+        Array.isArray(categories) && categories.length > 0
+          ? categories
+          : defaultDownloadClientCategories(),
       tags: tags || null,
       userId: req.userId,
     });
@@ -400,7 +406,8 @@ exports.testAllDownloadClients = async (req, res) => {
 
 exports.grabRelease = async (req, res) => {
   try {
-    const { downloadUrl, clientId, protocol, mediaType } = req.body;
+    const { downloadUrl, clientId, protocol, mediaType: rawMediaType } = req.body;
+    const mediaType = normalizeGrabMediaType(rawMediaType);
 
     if (!downloadUrl) {
       return res.status(400).json({ error: "Download URL or magnet link is required" });
@@ -472,16 +479,13 @@ exports.grabRelease = async (req, res) => {
     console.log(`[grabRelease] Client categories config:`, JSON.stringify(clientData.categories || []));
     
     if (clientData.categories && Array.isArray(clientData.categories)) {
-      // Check for universal category first (overrides all)
-      const universalCategory = clientData.categories.find(c => c.category === 'universal');
-      if (universalCategory && universalCategory.clientCategory) {
+      const universalCategory = clientData.categories.find((c) => c.category === 'universal');
+      if (universalCategory?.clientCategory) {
         categoryToUse = universalCategory.clientCategory;
-        console.log(`[grabRelease] ✅ Using UNIVERSAL category: "${categoryToUse}" (overrides movies/tv)`);
+        console.log(`[grabRelease] ✅ Using UNIVERSAL category: "${categoryToUse}" (overrides movie/tv)`);
       } else if (mediaType) {
-        // Check for media-specific category (movies or tv)
-        const mediaCategory = clientData.categories.find(c => c.category === mediaType);
-        if (mediaCategory && mediaCategory.clientCategory) {
-          categoryToUse = mediaCategory.clientCategory;
+        categoryToUse = resolveClientCategoryLabel(clientData.categories, mediaType);
+        if (categoryToUse) {
           console.log(`[grabRelease] ✅ Using ${mediaType.toUpperCase()} category: "${categoryToUse}"`);
         } else {
           console.log(`[grabRelease] ⚠️ No category configured for mediaType "${mediaType}"`);
@@ -491,6 +495,11 @@ exports.grabRelease = async (req, res) => {
       }
     } else {
       console.log(`[grabRelease] ⚠️ No categories configured for this client`);
+    }
+
+    if (!categoryToUse && mediaType) {
+      categoryToUse = mediaType;
+      console.log(`[grabRelease] 📁 Default category for ${mediaType}: "${categoryToUse}"`);
     }
     
     // Apply category to settings if found
@@ -552,16 +561,19 @@ exports.grabRelease = async (req, res) => {
         leechers, 
         quality, 
         source,
-        mediaType,
+        mediaType: requestMediaType,
         mediaTitle,
         tmdbId,
         seasonNumber,
         episodeNumber,
       } = req.body;
 
+      const historyMediaType =
+        normalizeGrabMediaType(requestMediaType) || requestMediaType || 'unknown';
+
       console.log('[DownloadClients] Creating history entry with data:', {
         userId: req.userId,
-        mediaType: mediaType || 'unknown',
+        mediaType: historyMediaType,
         mediaTitle: mediaTitle || null,
         tmdbId: tmdbId || null,
         releaseName: releaseName || downloadUrl,
@@ -573,7 +585,7 @@ exports.grabRelease = async (req, res) => {
 
       const historyEntry = await History.create({
         userId: req.userId,
-        mediaType: mediaType || 'unknown',
+        mediaType: historyMediaType,
         mediaTitle: mediaTitle || null,
         tmdbId: tmdbId || null,
         seasonNumber: seasonNumber || null,

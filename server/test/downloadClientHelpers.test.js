@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const {
   sanitizeDownloadClientForUser,
   redactDownloadClientSettings,
+  normalizeGrabMediaType,
+  resolveClientCategoryLabel,
 } = require('../utils/downloadClientHelpers');
 
 describe('downloadClientHelpers', () => {
@@ -29,6 +31,25 @@ describe('downloadClientHelpers', () => {
     };
     const out = sanitizeDownloadClientForUser(client, admin);
     assert.equal(out.settings.password, 'pw');
+  });
+
+  test('normalizeGrabMediaType maps aliases to movie and tv', () => {
+    assert.equal(normalizeGrabMediaType('movies'), 'movie');
+    assert.equal(normalizeGrabMediaType('movie'), 'movie');
+    assert.equal(normalizeGrabMediaType('series'), 'tv');
+    assert.equal(normalizeGrabMediaType('tv'), 'tv');
+  });
+
+  test('resolveClientCategoryLabel prefers configured label and falls back to key', () => {
+    assert.equal(
+      resolveClientCategoryLabel(
+        [{ category: 'movies', clientCategory: 'films' }],
+        'movie',
+      ),
+      'films',
+    );
+    assert.equal(resolveClientCategoryLabel([], 'movie'), 'movie');
+    assert.equal(resolveClientCategoryLabel([], 'series'), 'tv');
   });
 
   test('sanitize strips secrets for non-admin', () => {

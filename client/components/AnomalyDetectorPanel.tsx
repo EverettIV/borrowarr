@@ -284,7 +284,7 @@ export function AnomalyDetectorPanel({
       const { data } = await axios.post<ScanResult & { success: boolean }>(
         `${API_BASE_URL}/api/Settings/anomaly-detector/scan`,
         {
-          mediaType: "movies",
+          mediaType: "movie",
           directoryPath: effectiveDirectory,
           checkDuplicates,
           checkCorruption,

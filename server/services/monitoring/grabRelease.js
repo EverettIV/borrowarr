@@ -74,7 +74,7 @@ async function searchAndGrabMovie(movie, userId, options = {}) {
     leechers: bestTorrent.leechers,
     quality,
     source: options.source || 'Monitoring',
-    mediaType: 'movies',
+    mediaType: 'movie',
     mediaTitle: movie.title,
     tmdbId: movie.tmdbId,
   }, userId);

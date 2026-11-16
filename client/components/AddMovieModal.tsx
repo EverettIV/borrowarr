@@ -725,7 +725,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
         leechers: torrent.leechers,
         quality: quality,
         source: "AddMovieModal",
-        mediaType: "movies", // Must match category name in download client settings
+        mediaType: "movie",
         mediaTitle: media?.title || media?.name || "",
         tmdbId: media?.id || null,
       };

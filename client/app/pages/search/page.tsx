@@ -398,12 +398,12 @@ const Search = () => {
       }
 
       // Determine mediaType from categories (2xxx = movies, 5xxx = TV)
-      // This must match category names in download client settings: 'movies', 'tv', 'universal'
+      // Download client categories use: 'movie', 'tv', or 'universal'
       let mediaType: string | undefined = undefined;
       if (result.categories && result.categories.length > 0) {
         const categoryId = result.categories[0];
         if (categoryId >= 2000 && categoryId < 3000) {
-          mediaType = "movies"; // Movie categories (2000-2999)
+          mediaType = "movie"; // Movie categories (2000-2999)
         } else if (categoryId >= 5000 && categoryId < 6000) {
           mediaType = "tv"; // TV categories (5000-5999)
         }
@@ -443,7 +443,7 @@ const Search = () => {
         {
           downloadUrl: result.downloadUrl,
           protocol: result.protocol, // Pass protocol so backend selects correct client by priority
-          mediaType: mediaType, // For category selection: 'movies', 'tv', or undefined
+          mediaType: mediaType, // Download client category: 'movie', 'tv', or undefined
           // History information
           releaseName: result.title,
           indexer: result.indexer,
