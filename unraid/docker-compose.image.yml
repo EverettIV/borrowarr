@@ -1,0 +1,26 @@
+# Pull-only all-in-one layout (matches Unraid template). Build/push image first — see unraid/README.md.
+name: borrowarr
+
+services:
+  borrowarr:
+    image: everettiv/borrowarr:latest
+    container_name: borrowarr
+    restart: unless-stopped
+    ports:
+      - "3012:3012"
+      - "3013:3013"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      NODE_ENV: production
+      API_PORT: "3013"
+      CLIENT_PORT: "3012"
+      PORT: "3013"
+      SQLITE_STORAGE_PATH: /app/data/database.sqlite
+      BORROWARR_MEDIA: /media
+      BORROWARR_DOWNLOADS: /downloads
+      BORROWARR_ENSURE_MEDIA_DIRS: "false"
+    volumes:
+      - /mnt/user/appdata/borrowarr:/app/data
+      - /mnt/user/media:/media
+      - /mnt/user/downloads:/downloads

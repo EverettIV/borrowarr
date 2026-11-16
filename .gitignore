@@ -1,3 +1,6 @@
+# Nested Community Apps repo (separate git remote; clone inside this path locally)
+/borrowarr-unraid/
+
 # Docker default bind mounts (BORROWARR_HOST_MEDIA / BORROWARR_HOST_DOWNLOADS)
 /media/
 /downloads/
