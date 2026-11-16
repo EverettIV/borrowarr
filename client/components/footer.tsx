@@ -27,6 +27,7 @@ import {
 import { Button } from "@heroui/react";
 import { Snippet } from "@heroui/react";
 import "../styles/Footer.scss";
+import { BrandMark } from "@/components/BrandMark";
 
 const EthIcon = ({
   size = 16,
@@ -127,10 +128,13 @@ const Footer = () => {
       <div className="footer-container">
         <div className="footer-section footer-brand">
           <Link
-            className="brand-heading font-bold text-xl sm:text-2xl bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent transition-transform hover:scale-[1.02] w-fit"
+            className="brand-heading flex items-center gap-2.5 w-fit group"
             href="/pages/discover"
           >
-            BorrowArr
+            <BrandMark variant="footer" />
+            <span className="font-bold text-xl sm:text-2xl bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent transition-transform group-hover:scale-[1.02]">
+              BorrowArr
+            </span>
           </Link>
           <p className="brand-description">
             Take control of your media library with powerful automation,

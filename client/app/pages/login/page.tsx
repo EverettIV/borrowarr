@@ -1,8 +1,8 @@
 "use client";
 import React, { useEffect, useState } from "react";
-import { Spinner } from "@heroui/react";
 import { fetchSetupStatus } from "@/lib/setupStatus";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Input } from "@heroui/react";
 import { Card, CardBody } from "@heroui/react";
 import { useRouter } from "next/navigation";
@@ -73,7 +73,7 @@ const Login = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="flex flex-col items-center gap-4">
-          <Spinner color="secondary" size="lg" />
+          <YLogoLoader color="secondary" size="lg" />
           <p className="text-foreground/60">Loading...</p>
         </div>
       </div>

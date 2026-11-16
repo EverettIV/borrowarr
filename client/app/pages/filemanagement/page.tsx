@@ -2,19 +2,14 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
-import { Spinner, addToast, Progress } from "@heroui/react";
+import { addToast, Progress } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Button } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Card, CardBody, CardHeader } from "@heroui/react";
 import { Chip } from "@heroui/react";
 import { Switch } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import {
   FolderOpen,
   Film,
@@ -2105,7 +2100,7 @@ const FileManagement = () => {
 
         <PageContent>
           <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-secondary/20 bg-content1">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
             <p className="mt-4 text-foreground/60">
               Loading file management settings...
             </p>

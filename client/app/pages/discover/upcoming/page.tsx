@@ -1,8 +1,8 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Film, ChevronLeft, Calendar } from "lucide-react";
 import axios from "axios";
@@ -163,7 +163,7 @@ const UpcomingPage = () => {
         {/* Content Grid */}
         {loading ? (
           <div className="flex justify-center py-20">
-            <Spinner size="lg" />
+            <YLogoLoader size="lg" />
           </div>
         ) : media.length > 0 ? (
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-10 3xl:grid-cols-12 gap-2 sm:gap-3">

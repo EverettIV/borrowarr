@@ -1,6 +1,7 @@
 # Docker default bind mounts (BORROWARR_HOST_MEDIA / BORROWARR_HOST_DOWNLOADS)
 /media/
 /downloads/
+/data
 
 # Local task notes (not for remotes)
 tasks.md

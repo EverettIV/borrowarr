@@ -3,17 +3,11 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import axios from "axios";
 import { Input } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Button } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import {
   Search,
   Clock,
@@ -299,7 +293,7 @@ export default function HistoryPage() {
   if (loadingAuth) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/5 flex items-center justify-center">
-        <Spinner color="secondary" size="lg" />
+        <YLogoLoader color="secondary" size="lg" />
       </div>
     );
   }
@@ -428,7 +422,7 @@ export default function HistoryPage() {
         {/* History List */}
         {loading ? (
           <div className="flex justify-center items-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">

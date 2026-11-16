@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { Button, Chip, Input, Spinner } from "@heroui/react";
+import { Button, Chip, Input } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { RefreshCw, Search, ChevronDown, ChevronRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
@@ -285,7 +286,7 @@ export function ActivityLogPanel({
 
       {loading && entries.length === 0 ? (
         <div className="flex justify-center py-8">
-          <Spinner size="sm" />
+          <YLogoLoader size="sm" />
         </div>
       ) : error ? (
         <p className="text-sm text-danger">{error}</p>
@@ -356,7 +357,7 @@ export function ActivityLogPanel({
           <div ref={sentinelRef} className="h-2 shrink-0" aria-hidden />
           {loadingMore ? (
             <li className="flex justify-center py-2 list-none">
-              <Spinner size="sm" />
+              <YLogoLoader size="sm" />
             </li>
           ) : null}
           {!hasMore && entries.length > 0 ? (

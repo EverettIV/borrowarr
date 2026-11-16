@@ -1,8 +1,8 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Input } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Button } from "@heroui/react";
 import {
   Search as SearchIcon,
@@ -588,7 +588,7 @@ const Search = () => {
           {/* Indexer Filter Section */}
           {fetchingIndexers ? (
             <div className="bg-content2/50 backdrop-blur-sm border border-secondary/20 rounded-2xl p-6 text-center">
-              <Spinner className="mb-2" size="sm" />
+              <YLogoLoader className="mb-2" size="sm" />
               <p className="text-sm text-foreground/60">
                 Loading your indexers...
               </p>
@@ -803,7 +803,7 @@ const Search = () => {
           {/* Results */}
           {loading ? (
             <div className="flex flex-col items-center justify-center py-16">
-              <Spinner color="secondary" size="lg" />
+              <YLogoLoader color="secondary" size="lg" />
               <p className="text-foreground/60 mt-4">Searching indexers...</p>
             </div>
           ) : results.length > 0 ? (
@@ -862,7 +862,7 @@ const Search = () => {
                             variant="flat"
                           >
                             {grabbing.has(result.id) ? (
-                              <Spinner color="white" size="sm" />
+                              <YLogoLoader color="white" size="sm" />
                             ) : grabSuccess.has(result.id) ? (
                               <Check className="text-success" size={16} />
                             ) : (

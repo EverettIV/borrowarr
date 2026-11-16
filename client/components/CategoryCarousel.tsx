@@ -21,6 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import {
   Carousel,
   CarouselContent,
@@ -163,7 +164,7 @@ const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
       <div className="w-full py-4">
         <div className="container max-w-[1600px] 2xl:max-w-[1800px] mx-auto px-2 sm:px-4">
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-secondary" />
+            <YLogoLoader size="md" />
           </div>
         </div>
       </div>

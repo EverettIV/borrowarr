@@ -7,6 +7,7 @@ import { Chip } from "@heroui/react";
 import { Calendar, LogOut, User, Shield, Clock } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { PageContent, PageHeader } from "@/components/page-header";
+import { YLogoLoader } from "@/components/YLogoLoader";
 
 export default function AccountPage() {
   const router = useRouter();
@@ -53,7 +54,7 @@ export default function AccountPage() {
     return (
       <PageContent>
         <div className="flex items-center justify-center min-h-[400px]">
-          <div className="w-10 h-10 border-3 border-content3 border-t-secondary rounded-full animate-spin" />
+          <YLogoLoader size="lg" />
         </div>
       </PageContent>
     );

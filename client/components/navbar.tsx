@@ -36,6 +36,7 @@ import { useState, useRef, useEffect } from "react";
 import { Select, SelectItem } from "@heroui/react";
 import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
+import { BrandMark } from "@/components/BrandMark";
 export const Navbar = () => {
   const { user, logout } = useAuth();
   const router = useRouter();
@@ -204,9 +205,10 @@ export const Navbar = () => {
       >
         <NavbarBrand as="li" className="gap-3 max-w-fit">
           <NextLink
-            className="flex justify-start items-center group"
+            className="flex justify-start items-center gap-2 group"
             href="/pages/discover"
           >
+            <BrandMark variant="nav" />
             <p className="font-bold text-xl bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent group-hover:scale-105 transition-transform">
               BorrowArr
             </p>

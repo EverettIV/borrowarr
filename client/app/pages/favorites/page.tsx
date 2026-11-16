@@ -1,18 +1,12 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import { useRouter } from "next/navigation";
 import {
   Film,
@@ -464,7 +458,7 @@ const FavoritesPage = () => {
             }
           >
             {isDownloading ? (
-              <Spinner className="w-4 h-4" color="white" size="sm" />
+              <YLogoLoader className="w-4 h-4" color="white" size="sm" />
             ) : isDownloaded ? (
               <Check className="text-white" size={16} />
             ) : (
@@ -621,7 +615,7 @@ const FavoritesPage = () => {
         {/* Results */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
             <p className="mt-4 text-sm text-foreground/60">
               Loading your favorites...
             </p>
@@ -635,7 +629,7 @@ const FavoritesPage = () => {
             {/* Loading More Indicator */}
             {loadingMore && (
               <div className="flex justify-center items-center py-8">
-                <Spinner color="secondary" size="md" />
+                <YLogoLoader color="secondary" size="md" />
                 <span className="ml-2 text-sm text-foreground/60">
                   Loading more...
                 </span>

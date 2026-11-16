@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import "@/styles/Discover.scss";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Card, CardBody } from "@heroui/react";
 import {
   TrendingUp,
@@ -33,6 +33,9 @@ import { useAuth } from "@/context/AuthContext";
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 const TMDB_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/w500";
 const TMDB_BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/original";
+
+/** React Strict Mode mounts twice in dev; share one bootstrap across duplicate effects. */
+let discoverPageBootstrap: Promise<void> | null = null;
 
 interface TMDBMedia {
   id: number;
@@ -219,11 +222,21 @@ const Discover = () => {
     airingToday,
   ]);
 
-  // Fetch all content on mount
+  // Fetch all content on mount (deduped for React Strict Mode double-mount in dev)
   useEffect(() => {
-    fetchAllContent();
-    fetchGenres();
-    fetchStudiosAndNetworks();
+    discoverPageBootstrap ??= (async () => {
+      const [popularPreview] = await Promise.all([
+        fetchAllContent(),
+        fetchGenres(),
+      ]);
+      await fetchStudiosAndNetworks(
+        popularPreview?.popularMovies,
+        popularPreview?.popularTv,
+      );
+    })().finally(() => {
+      discoverPageBootstrap = null;
+    });
+    void discoverPageBootstrap;
   }, []);
 
   useEffect(() => {
@@ -284,7 +297,13 @@ const Discover = () => {
     }
   };
 
-  const fetchAllContent = async () => {
+  const fetchAllContent = async (): Promise<{
+    popularMovies: { id: number; popularity?: number }[];
+    popularTv: { id: number }[];
+  } | null> => {
+    let popularMoviesPreview: { id: number; popularity?: number }[] = [];
+    let popularTvPreview: { id: number }[] = [];
+
     try {
       // Fetch trending for hero and trending section (combine movies and TV)
       setLoadingTrending(true);
@@ -339,7 +358,12 @@ const Discover = () => {
         },
       );
       if (popularMoviesRes.data.success) {
-        const movies = (popularMoviesRes.data.results || [])
+        const results = popularMoviesRes.data.results || [];
+        popularMoviesPreview = results.slice(0, 20).map((movie: any) => ({
+          id: movie.id,
+          popularity: movie.popularity,
+        }));
+        const movies = results
           .slice(0, 20)
           .map((movie: any) => ({
             ...movie,
@@ -358,7 +382,11 @@ const Discover = () => {
         },
       );
       if (popularSeriesRes.data.success) {
-        const series = (popularSeriesRes.data.results || [])
+        const results = popularSeriesRes.data.results || [];
+        popularTvPreview = results.slice(0, 20).map((show: any) => ({
+          id: show.id,
+        }));
+        const series = results
           .slice(0, 20)
           .map((show: any) => ({
             ...show,
@@ -451,6 +479,11 @@ const Discover = () => {
         setAiringToday(deduplicateMedia(series));
       }
       setLoadingAiring(false);
+
+      return {
+        popularMovies: popularMoviesPreview,
+        popularTv: popularTvPreview,
+      };
     } catch (error) {
       console.error("[Discover] Error fetching content:", error);
       setLoadingTrending(false);
@@ -461,6 +494,7 @@ const Discover = () => {
       setLoadingUpcoming(false);
       setLoadingAiring(false);
       setLoadingHero(false);
+      return null;
     }
   };
 
@@ -737,23 +771,36 @@ const Discover = () => {
     }
   };
 
-  const fetchStudiosAndNetworks = async () => {
+  const fetchStudiosAndNetworks = async (
+    popularMovies?: { id: number; popularity?: number }[],
+    popularTv?: { id: number }[],
+  ) => {
     try {
-      // Fetch popular movies to extract studios
-      const moviesRes = await axios.get(
-        `${API_BASE_URL}/api/TMDB/popular/movies`,
-        {
-          params: { page: 1 },
-        },
-      );
+      let movieResults = popularMovies;
+      if (!movieResults?.length) {
+        const moviesRes = await axios.get(
+          `${API_BASE_URL}/api/TMDB/popular/movies`,
+          {
+            params: { page: 1 },
+          },
+        );
+        if (moviesRes.data.success && moviesRes.data.results) {
+          movieResults = moviesRes.data.results
+            .slice(0, 20)
+            .map((movie: { id: number; popularity?: number }) => ({
+              id: movie.id,
+              popularity: movie.popularity,
+            }));
+        }
+      }
 
-      if (moviesRes.data.success && moviesRes.data.results) {
+      if (movieResults?.length) {
         const companiesMap = new Map<
           number,
           { item: CategoryItem; score: number }
         >();
 
-        const moviePromises = moviesRes.data.results
+        const moviePromises = movieResults
           .slice(0, 20)
           .map((movie: { id: number; popularity?: number }, listIndex: number) =>
             axios
@@ -813,16 +860,23 @@ const Discover = () => {
         setStudios(sortedStudios);
       }
 
-      // Fetch popular TV shows to extract networks
-      const tvRes = await axios.get(`${API_BASE_URL}/api/TMDB/popular/tv`, {
-        params: { page: 1 },
-      });
+      let tvResults = popularTv;
+      if (!tvResults?.length) {
+        const tvRes = await axios.get(`${API_BASE_URL}/api/TMDB/popular/tv`, {
+          params: { page: 1 },
+        });
+        if (tvRes.data.success && tvRes.data.results) {
+          tvResults = tvRes.data.results
+            .slice(0, 20)
+            .map((show: { id: number }) => ({ id: show.id }));
+        }
+      }
 
-      if (tvRes.data.success && tvRes.data.results) {
+      if (tvResults?.length) {
         const networksMap = new Map<number, CategoryItem>();
 
         // Get details for first few TV shows to extract networks
-        const tvPromises = tvRes.data.results.slice(0, 10).map((show: any) =>
+        const tvPromises = tvResults.slice(0, 10).map((show) =>
           axios
             .get(`${API_BASE_URL}/api/TMDB/tv/${show.id}`)
             .then((res) => res.data.tv)
@@ -1017,7 +1071,7 @@ const Discover = () => {
         </div>
         {loadingHero ? (
           <div className="w-full h-full flex items-center justify-center bg-default-100">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : heroMedia ? (
           <>
@@ -1170,7 +1224,7 @@ const Discover = () => {
                       variant="bordered"
                     >
                       {favoritingHero ? (
-                        <Spinner color="white" size="sm" />
+                        <YLogoLoader color="white" size="sm" />
                       ) : (
                         <Heart
                           fill={isHeroFavorited ? "currentColor" : "none"}

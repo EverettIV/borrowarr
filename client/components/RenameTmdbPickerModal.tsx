@@ -2,16 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import axios from "axios";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  Button,
-  Input,
-  Spinner,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, Button, Input } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Search } from "lucide-react";
 
 const API_BASE_URL =
@@ -127,7 +119,7 @@ export function RenameTmdbPickerModal({
           {error ? <p className="text-sm text-danger">{error}</p> : null}
           {loading ? (
             <div className="flex justify-center py-8">
-              <Spinner size="sm" />
+              <YLogoLoader size="sm" />
             </div>
           ) : results.length === 0 ? (
             <p className="text-sm text-default-500 py-6 text-center">

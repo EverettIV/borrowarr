@@ -1,18 +1,12 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Film,
@@ -1197,7 +1191,7 @@ const MoviesPage = () => {
               title={isHidden ? "Unhide" : "Hide (never show again)"}
             >
               {isHiding ? (
-                <Spinner
+                <YLogoLoader
                   className="w-3 h-3 sm:w-4 sm:h-4"
                   color="white"
                   size="sm"
@@ -1223,7 +1217,7 @@ const MoviesPage = () => {
               title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
             >
               {isFavoriting ? (
-                <Spinner
+                <YLogoLoader
                   className="w-3 h-3 sm:w-4 sm:h-4"
                   color="white"
                   size="sm"
@@ -1261,7 +1255,7 @@ const MoviesPage = () => {
             }
           >
             {isDownloading ? (
-              <Spinner
+              <YLogoLoader
                 className="w-3 h-3 sm:w-4 sm:h-4"
                 color="white"
                 size="sm"
@@ -2031,7 +2025,7 @@ const MoviesPage = () => {
 
                 {loadingProviders ? (
                   <div className="flex justify-center py-8">
-                    <Spinner size="sm" />
+                    <YLogoLoader size="sm" />
                   </div>
                 ) : watchProviders.length > 0 ? (
                   <div className="overflow-x-auto pb-2 -mx-2 px-2">
@@ -2081,7 +2075,7 @@ const MoviesPage = () => {
         {/* Content Grid */}
         {loading ? (
           <div className="flex justify-center items-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : media.length > 0 ? (
           <>
@@ -2238,7 +2232,7 @@ const MoviesPage = () => {
             {/* Loading more indicator */}
             {loadingMore && (
               <div className="flex justify-center items-center py-8">
-                <Spinner color="secondary" size="lg" />
+                <YLogoLoader color="secondary" size="lg" />
               </div>
             )}
 

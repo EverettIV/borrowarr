@@ -1,16 +1,10 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import {
   ExternalLink,
   Calendar,
@@ -1903,7 +1897,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                         size="sm"
                         startContent={
                           isHiding ? (
-                            <Spinner className="w-4 h-4" size="sm" />
+                            <YLogoLoader className="w-4 h-4" size="sm" />
                           ) : isHidden ? (
                             <EyeOff size={16} />
                           ) : (
@@ -1921,7 +1915,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                         size="sm"
                         startContent={
                           isFavoriting ? (
-                            <Spinner className="w-4 h-4" size="sm" />
+                            <YLogoLoader className="w-4 h-4" size="sm" />
                           ) : (
                             <Heart
                               className={isFavorited ? "fill-current" : ""}
@@ -1971,7 +1965,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
           <ModalBody className="py-6">
             {loadingDetails ? (
               <div className="flex justify-center items-center py-12">
-                <Spinner size="lg" />
+                <YLogoLoader size="lg" />
               </div>
             ) : (
               <div className="space-y-6">
@@ -2409,7 +2403,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
 
                   {loadingSeasons ? (
                     <div className="flex justify-center items-center py-8">
-                      <Spinner />
+                      <YLogoLoader />
                     </div>
                   ) : (
                     <div className="space-y-2 max-h-[500px] overflow-y-auto">
@@ -2510,7 +2504,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                     season.season_number,
                                   ) ? (
                                     <div className="flex justify-center items-center py-4">
-                                      <Spinner size="sm" />
+                                      <YLogoLoader size="sm" />
                                     </div>
                                   ) : (
                                       seasonTorrents.get(
@@ -2767,7 +2761,7 @@ const AddSeriesModal: React.FC<AddSeriesModalProps> = ({
                                           <div className="ml-6 mt-2 mb-2">
                                             {isLoadingTorrents ? (
                                               <div className="flex justify-center items-center py-4">
-                                                <Spinner size="sm" />
+                                                <YLogoLoader size="sm" />
                                               </div>
                                             ) : torrents.length > 0 ? (
                                               <div>

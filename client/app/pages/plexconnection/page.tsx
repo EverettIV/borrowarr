@@ -1,18 +1,11 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody, CardHeader } from "@heroui/react";
 import { Input } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import {
   Server,
   CheckCircle2,
@@ -325,7 +318,7 @@ const PlexConnection = () => {
       <PageContent>
         {loading ? (
           <div className="flex justify-center items-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : !connection.connected ? (
           <div className="max-w-4xl mx-auto space-y-6">
@@ -703,7 +696,7 @@ const PlexConnection = () => {
               <CardBody className="p-6">
                 {loadingLibraries ? (
                   <div className="flex justify-center py-8">
-                    <Spinner color="secondary" />
+                    <YLogoLoader color="secondary" />
                   </div>
                 ) : librariesError ? (
                   <div className="text-center py-8 space-y-2">

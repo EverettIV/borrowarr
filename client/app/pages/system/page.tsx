@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Spinner } from "@heroui/react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Input } from "@heroui/react";
 import { Card, CardBody, CardHeader } from "@heroui/react";
 import { Switch } from "@heroui/react";
@@ -182,7 +182,7 @@ const System = () => {
 
         <PageContent>
           <div className="flex flex-col items-center justify-center py-16 rounded-xl border border-secondary/20 bg-content1">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
             <p className="mt-4 text-foreground/60">
               Loading monitor settings...
             </p>

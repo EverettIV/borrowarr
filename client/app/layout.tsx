@@ -11,7 +11,7 @@ import { rootMetadata } from "@/lib/metadata";
 export const metadata: Metadata = rootMetadata();
 
 export const viewport: Viewport = {
-  themeColor: [{ color: "#000000" }],
+  themeColor: [{ color: "#18181b" }],
   width: "device-width",
   initialScale: 1,
 };

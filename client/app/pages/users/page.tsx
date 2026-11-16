@@ -2,19 +2,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody, CardHeader } from "@heroui/react";
 import { Input } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Chip } from "@heroui/react";
 import { Switch } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from "@heroui/react";
 import {
   Users as UsersIcon,
   Plus,
@@ -378,7 +371,7 @@ const Users = () => {
 
         {loading ? (
           <div className="flex justify-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

@@ -1,18 +1,12 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import { useRouter } from "next/navigation";
 import {
   Film,
@@ -504,7 +498,7 @@ const MediaLibrary = () => {
               title={isFavorited ? 'Remove from Favorites' : 'Add to Favorites'}
             >
               {isFavoriting ? (
-                <Spinner
+                <YLogoLoader
                   size="sm"
                   color="white"
                   className="w-3 h-3 sm:w-4 sm:h-4"
@@ -530,7 +524,7 @@ const MediaLibrary = () => {
             title={isDownloaded ? 'Added' : isDownloading ? 'Queueing...' : 'Add to Library'}
           >
             {isDownloading ? (
-              <Spinner
+              <YLogoLoader
                 size="sm"
                 color="white"
                 className="w-3 h-3 sm:w-4 sm:h-4"
@@ -767,7 +761,7 @@ const MediaLibrary = () => {
       <PageContent width="wide">
         {loading ? (
           <div className="flex justify-center items-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : media.length === 0 ? (
           <Card className="card-interactive">
@@ -805,7 +799,7 @@ const MediaLibrary = () => {
             {/* Loading more indicator */}
             {loadingMore && (
               <div className="flex justify-center items-center py-8">
-                <Spinner color="secondary" size="lg" />
+                <YLogoLoader color="secondary" size="lg" />
               </div>
             )}
 

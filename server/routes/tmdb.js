@@ -14,8 +14,9 @@ const {
 } = require('../middleware/tmdb');
 
 router.use(authenticateToken);
-router.use(tmdbGeneralLimiter);
+// Serve cached catalog responses before rate limiting so refreshes do not burn the quota.
 router.use(tmdbResponseCache);
+router.use(tmdbGeneralLimiter);
 
 router.get('/search', tmdbSearchLimiter, TMDBController.searchMovies);
 

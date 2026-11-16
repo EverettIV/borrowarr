@@ -10,6 +10,7 @@ import {
   requiresAuthentication,
 } from "@/lib/authRoutes";
 import { fetchSetupStatus } from "@/lib/setupStatus";
+import { YLogoLoader } from "@/components/YLogoLoader";
 
 const AuthRouter = ({ children }: { children: ReactNode }) => {
   const { user, loading } = useAuth();
@@ -135,7 +136,7 @@ const AuthRouter = ({ children }: { children: ReactNode }) => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-3 border-content3 border-t-secondary rounded-full animate-spin" />
+          <YLogoLoader size="lg" />
           <p className="text-foreground opacity-70">Loading...</p>
         </div>
       </div>

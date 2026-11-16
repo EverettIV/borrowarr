@@ -8,16 +8,8 @@ import React, {
   useRef,
 } from "react";
 import axios from "axios";
-import {
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  Chip,
-  Input,
-  Spinner,
-  Switch,
-} from "@heroui/react";
+import { Button, Card, CardBody, CardHeader, Chip, Input, Switch } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import {
   ChevronDown,
   ChevronRight,
@@ -34,13 +26,7 @@ import {
 } from "lucide-react";
 import { SectionInfoCallout } from "./SectionInfoCallout";
 import { ActivityLogPanel } from "./ActivityLogPanel";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import DirectoryPicker from "./DirectoryPicker";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
@@ -632,7 +618,7 @@ export function AnomalyDetectorPanel({
 
             {(scanning || autoScanRunning) && (
               <div className="flex items-center gap-3 py-6 justify-center text-default-500">
-                <Spinner color="secondary" size="sm" />
+                <YLogoLoader color="secondary" size="sm" />
                 <span>
                   {autoScanRunning && !scanning
                     ? schedulerStatus?.cancelRequested
@@ -866,7 +852,7 @@ export function AnomalyDetectorPanel({
             <div className="pt-2 border-t border-content3 space-y-3">
               {schedulerStatus?.scanInProgress && (
                 <div className="flex items-center gap-2 text-sm text-secondary">
-                  <Spinner color="secondary" size="sm" />
+                  <YLogoLoader color="secondary" size="sm" />
                   <span>Scheduled scan in progress…</span>
                 </div>
               )}

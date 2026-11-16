@@ -3,18 +3,12 @@
 import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Input } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Chip } from "@heroui/react";
 import { Textarea } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import {
   Inbox,
   Search,
@@ -269,7 +263,7 @@ const Requests = () => {
           <Chip
             color="primary"
             size="sm"
-            startContent={<Spinner size="sm" />}
+            startContent={<YLogoLoader size="sm" />}
             variant="flat"
           >
             Downloading
@@ -421,7 +415,7 @@ const Requests = () => {
         {/* Requests List */}
         {loading ? (
           <div className="flex justify-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : filteredRequests.length === 0 ? (
           <Card className="border border-secondary/20">

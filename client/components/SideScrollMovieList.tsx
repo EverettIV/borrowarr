@@ -10,16 +10,10 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
-import { Spinner } from "@heroui/react";
 import { Chip } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Button } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import axios from "axios";
 import AddMovieModal from "./AddMovieModal";
 import AddSeriesModal from "./AddSeriesModal";
@@ -605,7 +599,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
               title={isHidden ? "Unhide" : "Hide (never show again)"}
             >
               {isHiding ? (
-                <Spinner className="w-4 h-4" color="white" size="sm" />
+                <YLogoLoader className="w-4 h-4" color="white" size="sm" />
               ) : isHidden ? (
                 <EyeOff className="text-white" size={16} />
               ) : (
@@ -627,7 +621,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
               title={isFavorited ? "Remove from Favorites" : "Add to Favorites"}
             >
               {isFavoriting ? (
-                <Spinner className="w-4 h-4" color="white" size="sm" />
+                <YLogoLoader className="w-4 h-4" color="white" size="sm" />
               ) : (
                 <Heart
                   className={`text-white ${isFavorited ? "fill-white" : ""}`}
@@ -662,7 +656,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
               }
             >
               {isDownloading ? (
-                <Spinner className="w-4 h-4" color="white" size="sm" />
+                <YLogoLoader className="w-4 h-4" color="white" size="sm" />
               ) : isDownloaded ? (
                 <Check className="text-white" size={16} />
               ) : (
@@ -734,7 +728,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
           {/* Content */}
           {loading ? (
             <div className="flex justify-center items-center py-12">
-              <Spinner color="secondary" size="lg" />
+              <YLogoLoader color="secondary" size="lg" />
             </div>
           ) : items.length === 0 ? (
             <div className="text-center py-12">
@@ -771,7 +765,7 @@ const SideScrollMovieList: React.FC<SideScrollMovieListProps> = ({
                   {loadingMore && (
                     <CarouselItem className="pl-2 sm:pl-3 basis-1/2 sm:basis-1/3 md:basis-1/4 lg:basis-1/5 xl:basis-1/6 2xl:basis-1/7 3xl:basis-1/8 4xl:basis-1/10 5xl:basis-1/12">
                       <div className="flex items-center justify-center h-full min-h-[300px]">
-                        <Spinner color="secondary" size="lg" />
+                        <YLogoLoader color="secondary" size="lg" />
                       </div>
                     </CarouselItem>
                   )}

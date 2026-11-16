@@ -1,17 +1,11 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import {
   Download,
   Plus,
@@ -1266,7 +1260,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                         size="sm"
                         startContent={
                           isHiding ? (
-                            <Spinner className="w-4 h-4" size="sm" />
+                            <YLogoLoader className="w-4 h-4" size="sm" />
                           ) : isHidden ? (
                             <EyeOff size={16} />
                           ) : (
@@ -1284,7 +1278,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                         size="sm"
                         startContent={
                           isFavoriting ? (
-                            <Spinner className="w-4 h-4" size="sm" />
+                            <YLogoLoader className="w-4 h-4" size="sm" />
                           ) : (
                             <Heart
                               className={isFavorited ? "fill-current" : ""}
@@ -1334,7 +1328,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
           <ModalBody className="py-6">
             {loadingDetails ? (
               <div className="flex justify-center items-center py-12">
-                <Spinner size="lg" />
+                <YLogoLoader size="lg" />
               </div>
             ) : (
               <div className="space-y-6">
@@ -1865,7 +1859,7 @@ const AddMovieModal: React.FC<AddMovieModalProps> = ({
                     <Card className="bg-gradient-to-br from-secondary/20 via-primary/10 to-secondary/20 border border-secondary/30">
                       <CardBody className="py-12 px-6">
                         <div className="flex flex-col items-center justify-center text-center space-y-4">
-                          <Spinner color="secondary" size="lg" />
+                          <YLogoLoader color="secondary" size="lg" />
                           <p className="text-sm text-default-500">
                             Searching indexers for releases...
                           </p>

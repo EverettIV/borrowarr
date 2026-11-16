@@ -1,18 +1,12 @@
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody } from "@heroui/react";
 import { Chip } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import { Input } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import { useRouter } from "next/navigation";
 import { Film, Tv, Search, ChevronLeft, EyeOff, Eye } from "lucide-react";
 import axios from "axios";
@@ -265,7 +259,7 @@ const HiddenMediaPage = () => {
             title="Unhide"
           >
             {isUnhiding ? (
-              <Spinner
+              <YLogoLoader
                 className="w-3 h-3 sm:w-4 sm:h-4"
                 color="white"
                 size="sm"
@@ -386,7 +380,7 @@ const HiddenMediaPage = () => {
       <PageContent>
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <Spinner color="warning" size="lg" />
+            <YLogoLoader color="warning" size="lg" />
             <p className="mt-4 text-foreground/60">Loading hidden media...</p>
           </div>
         ) : hiddenMedia.length === 0 ? (

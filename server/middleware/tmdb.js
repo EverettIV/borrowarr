@@ -11,9 +11,17 @@ function tmdbRateLimitKey(req) {
 
 const bundledKeyMultiplier = () => (isUsingBundledTmdbKey() ? 0.5 : 1);
 
+/** Discover and similar pages issue many parallel TMDB proxy calls; relax limits in dev. */
+const environmentMultiplier = () =>
+  process.env.NODE_ENV === 'production' ? 1 : 4;
+
 const tmdbGeneralLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: () => Math.max(30, Math.floor(120 * bundledKeyMultiplier())),
+  max: () =>
+    Math.max(
+      30,
+      Math.floor(120 * bundledKeyMultiplier() * environmentMultiplier()),
+    ),
   message: { success: false, error: 'Too many TMDB requests. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -22,7 +30,11 @@ const tmdbGeneralLimiter = rateLimit({
 
 const tmdbSearchLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: () => Math.max(10, Math.floor(30 * bundledKeyMultiplier())),
+  max: () =>
+    Math.max(
+      10,
+      Math.floor(30 * bundledKeyMultiplier() * environmentMultiplier()),
+    ),
   message: { success: false, error: 'Too many TMDB searches. Please slow down.' },
   standardHeaders: true,
   legacyHeaders: false,

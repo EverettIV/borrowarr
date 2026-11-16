@@ -1,20 +1,13 @@
 "use client";
 import React, { useState, useEffect } from "react";
 import { Button } from "@heroui/react";
+import { YLogoLoader } from "@/components/YLogoLoader";
 import { Card, CardBody, CardHeader } from "@heroui/react";
 import { Input } from "@heroui/react";
-import {
-  Modal,
-  ModalContent,
-  ModalHeader,
-  ModalBody,
-  ModalFooter,
-  useDisclosure,
-} from "@heroui/react";
+import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from "@heroui/react";
 import { Chip } from "@heroui/react";
 import { Switch } from "@heroui/react";
 import { Select, SelectItem } from "@heroui/react";
-import { Spinner } from "@heroui/react";
 import {
   Plus,
   TestTube,
@@ -521,7 +514,7 @@ const DownloadClients = () => {
       <PageContent>
         {loading ? (
           <div className="flex justify-center items-center py-20">
-            <Spinner color="secondary" size="lg" />
+            <YLogoLoader color="secondary" size="lg" />
           </div>
         ) : clients.length === 0 ? (
           <Card className="card-interactive">

@@ -25,6 +25,20 @@ module.exports = {
           dark: "#1a1a1a", // Slightly lighter than black background
         },
       },
+      keyframes: {
+        "y-logo-loader": {
+          "0%": { transform: "rotate(0deg)" },
+          "18.52%": { transform: "rotate(-360deg)" },
+          "33.33%": { transform: "rotate(-360deg)" },
+          "51.85%": { transform: "rotate(-720deg)" },
+          "66.67%": { transform: "rotate(-720deg)" },
+          "85.19%": { transform: "rotate(-1080deg)" },
+          "100%": { transform: "rotate(-1080deg)" },
+        },
+      },
+      animation: {
+        "y-logo-loader": "y-logo-loader 2.7s ease-in-out infinite",
+      },
     },
   },
   darkMode: "class",
