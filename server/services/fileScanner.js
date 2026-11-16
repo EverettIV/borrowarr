@@ -13,8 +13,8 @@ const Settings = require('../models/Settings');
 function normalizeString(str) {
   return str
     .toLowerCase()
-    .replace(/[^\w\s]/g, '') // Remove special characters
-    .replace(/\s+/g, ' ')     // Normalize whitespace
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -63,15 +63,14 @@ function titleMatchesFilename(movieTitle, fileName, movieYear) {
     }
   }
   
-  // If we have a year, verify it matches
+  // Require release year in the filename when known (reduces false positives on short titles).
   if (movieYear) {
     const yearStr = movieYear.toString();
     if (!normalizedFileName.includes(yearStr)) {
-      // Year not found, but might still be the right movie in a folder without year
-      // Don't return false, but we won't use this as strong confirmation
+      return false;
     }
   }
-  
+
   return true;
 }
 
@@ -378,6 +377,7 @@ module.exports = {
   getSeriesMediaDirectory,
   getUserMovieDirectory,
   getUserSeriesDirectory,
+  titleMatchesFilename,
   normalizeString,
   formatBytes,
 };

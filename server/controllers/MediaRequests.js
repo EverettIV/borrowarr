@@ -17,6 +17,8 @@ const {
   pickBestMatchingMovieRelease,
 } = require('../utils/releaseTitleMatch');
 const { logMonitoring } = require('../services/monitoring/activityLog');
+const { addMonitoredMovie, addMonitoredSeries } = require('../services/monitoring/add');
+const { ensureUserScheduled, triggerUserCheck } = require('../services/monitoring/scheduler');
 const { Op } = require('sequelize');
 
 const canManageRequests = (user) =>
@@ -421,48 +423,98 @@ exports.createRequest = async (req, res) => {
       reviewedAt: hasAutoApprove ? new Date() : null,
     });
 
-    // If auto-approved, also add to monitored
+    let autoApproveMessage = 'Request submitted for approval';
+
     if (hasAutoApprove) {
-      if (mediaType === 'movie') {
-        await MonitoredMovies.findOrCreate({
-          where: { userId, tmdbId },
-          defaults: {
-            userId,
-            tmdbId,
-            title,
-            overview,
-            posterUrl: normalizePosterUrl(posterPath),
-            releaseDate,
-            qualityProfile: qualityProfile || 'any',
-            status: 'monitoring',
-          },
-        });
-      } else if (mediaType === 'series') {
-        await MonitoredSeries.findOrCreate({
-          where: { userId, tmdbId },
-          defaults: {
-            userId,
-            tmdbId,
-            title,
-            overview,
-            posterUrl: normalizePosterUrl(posterPath),
-            firstAirDate: releaseDate,
-            selectedSeasons: JSON.stringify(selectedSeasons || []),
-            selectedEpisodes: JSON.stringify(selectedEpisodes || []),
-            qualityProfile: qualityProfile || 'any',
-            status: 'monitoring',
-          },
-        });
+      try {
+        await approveAndDownload(request, userId, requestNote || 'Auto-approved');
+        autoApproveMessage =
+          'Request approved — search ran and a grab was queued in your download client';
+      } catch (grabError) {
+        console.error(
+          '[MediaRequests] Auto-approve grab failed, falling back to monitoring search:',
+          grabError.message,
+        );
+        const monitorPayload = {
+          userId,
+          tmdbId,
+          title,
+          overview,
+          posterUrl: normalizePosterUrl(posterPath),
+          releaseDate,
+          qualityProfile: qualityProfile || 'any',
+          searchOnAdd: true,
+          grabOnAdd: true,
+        };
+        try {
+          if (mediaType === 'movie') {
+            const result = await addMonitoredMovie(monitorPayload);
+            autoApproveMessage =
+              result.action === 'grabbed'
+                ? result.message
+                : `Approved and added to monitoring. ${result.message || 'Will retry on the next check.'}`;
+          } else {
+            const result = await addMonitoredSeries({
+              ...monitorPayload,
+              firstAirDate: releaseDate,
+              selectedSeasons,
+              selectedEpisodes,
+            });
+            autoApproveMessage =
+              result.action === 'grabbed'
+                ? result.message
+                : `Approved and added to monitoring. ${result.message || 'Will retry on the next check.'}`;
+          }
+        } catch (monitorError) {
+          console.error('[MediaRequests] Auto-approve monitoring fallback failed:', monitorError.message);
+          autoApproveMessage =
+            'Request approved and added to monitoring (grab will retry automatically)';
+          await ensureUserScheduled(userId);
+          if (mediaType === 'movie') {
+            await MonitoredMovies.findOrCreate({
+              where: { userId, tmdbId },
+              defaults: {
+                userId,
+                tmdbId,
+                title,
+                overview,
+                posterUrl: normalizePosterUrl(posterPath),
+                releaseDate,
+                qualityProfile: qualityProfile || 'any',
+                status: 'monitoring',
+              },
+            });
+          } else if (mediaType === 'series') {
+            await MonitoredSeries.findOrCreate({
+              where: { userId, tmdbId },
+              defaults: {
+                userId,
+                tmdbId,
+                title,
+                overview,
+                posterUrl: normalizePosterUrl(posterPath),
+                firstAirDate: releaseDate,
+                selectedSeasons: JSON.stringify(selectedSeasons || []),
+                selectedEpisodes: JSON.stringify(selectedEpisodes || []),
+                qualityProfile: qualityProfile || 'any',
+                status: 'monitoring',
+              },
+            });
+          }
+          setImmediate(() => {
+            triggerUserCheck(userId).catch((err) => {
+              console.error('[MediaRequests] Post-approve monitoring trigger failed:', err.message);
+            });
+          });
+        }
       }
     }
 
     res.json({
       success: true,
-      request,
+      request: await request.reload(),
       autoApproved: hasAutoApprove,
-      message: hasAutoApprove 
-        ? 'Request auto-approved and added to monitoring'
-        : 'Request submitted for approval',
+      message: autoApproveMessage,
     });
   } catch (error) {
     console.error('Error creating request:', error);

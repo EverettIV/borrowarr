@@ -15,6 +15,21 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function shouldSkipMovieGrab(sync, forceSearch) {
+  if (sync.wanted) return false;
+  if (forceSearch && !sync.hasFile) return false;
+  return true;
+}
+
+function movieGrabSkipMessage(sync) {
+  if (sync.status === 'found') return 'Satisfied on disk';
+  if (sync.status === 'upgrade_wanted') return 'Unexpected upgrade state';
+  if (sync.status === 'no_directory') {
+    return 'Movie library folder not configured (Settings → Paths)';
+  }
+  return 'Already satisfied — no grab needed';
+}
+
 async function tryGrabMovie(movie, settings, grabBudget) {
   if (grabBudget.remaining <= 0) return { grabbed: false, reason: 'grab_budget' };
   if (movie.status === 'downloading') {
@@ -77,12 +92,12 @@ async function processMonitoredMovie(movie, options = {}) {
   const forceSearch = options.forceSearch === true;
   const autoDownload = qs.autoDownload;
 
-  if (!sync.wanted) {
+  if (shouldSkipMovieGrab(sync, forceSearch)) {
     return {
       movieId: movie.id,
       title: movie.title,
       status: sync.status === 'found' ? 'downloaded' : sync.status,
-      message: sync.status === 'upgrade_wanted' ? 'Unexpected upgrade state' : 'Satisfied on disk',
+      message: movieGrabSkipMessage(sync),
       sync,
     };
   }

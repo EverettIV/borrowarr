@@ -72,7 +72,8 @@ async function syncMovieFromLibrary(movie, settings) {
       status: 'no_directory',
       message: 'Movie directory not configured',
       hasFile: false,
-      wanted: false,
+      wanted: true,
+      wantedReason: 'missing',
     };
   }
 
