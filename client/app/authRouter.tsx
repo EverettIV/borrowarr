@@ -1,42 +1,84 @@
 "use client";
-import { useEffect } from "react";
+
+import { useEffect, useState, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import axios from "axios";
 import { useAuth } from "@/context/AuthContext";
+import {
+  DEFAULT_AUTHENTICATED_ROUTE,
+  LOGIN_ROUTE,
+  REGISTER_ROUTE,
+  requiresAuthentication,
+} from "@/lib/authRoutes";
 
-const LOGIN_ROUTE = "/pages/login";
-const ACCOUNT_ROUTE = "/pages/account";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3013";
 
-// Routes that require authentication
-const protectedRoutes = [
-  "/pages/account",
-  "/pages/monitored",
-  "/pages/indexers",
-  "/pages/settings",
-  "/pages/search",
-];
-
-const AuthRouter = (props: any) => {
+const AuthRouter = ({ children }: { children: ReactNode }) => {
   const { user, loading } = useAuth();
   const router = useRouter();
   const pathName = usePathname();
+  const [setupLoading, setSetupLoading] = useState(true);
+  const [isFirstRun, setIsFirstRun] = useState(false);
 
   useEffect(() => {
-    if (loading) return; // Wait for auth check to complete
+    if (loading) return;
 
     if (user) {
-      // User is logged in
-      if (pathName === LOGIN_ROUTE || pathName === "/pages/register") {
-        router.push(ACCOUNT_ROUTE);
-      }
-    } else {
-      // User is not logged in
-      if (protectedRoutes.some((route) => pathName.startsWith(route))) {
-        router.push(LOGIN_ROUTE);
-      }
+      setSetupLoading(false);
+      return;
     }
-  }, [loading, user, pathName, router]);
 
-  if (loading) {
+    let cancelled = false;
+
+    const loadSetupStatus = async () => {
+      try {
+        const response = await axios.get(
+          `${API_BASE_URL}/api/Settings/public-registration-status`,
+        );
+        if (!cancelled) {
+          setIsFirstRun(Boolean(response.data?.isFirstRun));
+        }
+      } catch {
+        if (!cancelled) {
+          setIsFirstRun(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setSetupLoading(false);
+        }
+      }
+    };
+
+    void loadSetupStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, user]);
+
+  useEffect(() => {
+    if (loading || setupLoading) return;
+
+    const unauthEntry = isFirstRun ? REGISTER_ROUTE : LOGIN_ROUTE;
+
+    if (user) {
+      if (pathName === LOGIN_ROUTE || pathName === REGISTER_ROUTE) {
+        router.replace(DEFAULT_AUTHENTICATED_ROUTE);
+      }
+      return;
+    }
+
+    if (isFirstRun && pathName === LOGIN_ROUTE) {
+      router.replace(REGISTER_ROUTE);
+      return;
+    }
+
+    if (requiresAuthentication(pathName)) {
+      router.replace(unauthEntry);
+    }
+  }, [loading, setupLoading, user, isFirstRun, pathName, router]);
+
+  if (loading || setupLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
@@ -47,7 +89,7 @@ const AuthRouter = (props: any) => {
     );
   }
 
-  return <>{props.children}</>;
+  return <>{children}</>;
 };
 
 export default AuthRouter;

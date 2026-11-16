@@ -55,7 +55,7 @@ export const Navbar = () => {
   const handleAuthAction = () => {
     if (user) {
       logout();
-      router.push("/pages/discover");
+      router.push("/pages/login");
     } else {
       router.push("/pages/login");
     }
@@ -266,15 +266,6 @@ export const Navbar = () => {
                     >
                       <Search size={18} />
                       Search Indexers
-                    </NextLink>
-                    <div className="border-t border-secondary/20 my-1 mx-1" />
-                    <NextLink
-                      className="flex items-center gap-2 px-4 py-2 text-sm hover:bg-secondary/10 hover:text-secondary transition-all rounded-md mx-1"
-                      href="/pages/featuredlists"
-                      onClick={() => setDiscoverDropdownOpen(false)}
-                    >
-                      <Sparkles size={18} />
-                      Featured Lists
                     </NextLink>
                   </div>
                 </div>
@@ -538,7 +529,6 @@ export const Navbar = () => {
               href: user ? "/pages/search" : "/pages/login",
               requiresAuth: true,
             },
-            { label: "Featured Lists", href: "/pages/featuredlists" },
             {
               label: "Indexers",
               href: user ? "/pages/indexers" : "/pages/login",

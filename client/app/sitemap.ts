@@ -8,7 +8,6 @@ const PUBLIC_PATHS = [
   "/pages/discover/popular",
   "/pages/discover/trending",
   "/pages/discover/upcoming",
-  "/pages/featuredlists",
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {

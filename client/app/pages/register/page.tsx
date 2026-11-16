@@ -23,6 +23,7 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [checkingRegistration, setCheckingRegistration] = useState(true);
   const [registrationEnabled, setRegistrationEnabled] = useState(true);
+  const [isFirstRun, setIsFirstRun] = useState(false);
 
   useEffect(() => {
     const checkRegistrationStatus = async () => {
@@ -31,6 +32,7 @@ const Register = () => {
           `${API_BASE_URL}/api/Settings/public-registration-status`,
         );
         setRegistrationEnabled(response.data.enabled);
+        setIsFirstRun(Boolean(response.data.isFirstRun));
       } catch (error) {
         console.error("Error checking registration status:", error);
         // Default to enabled if there's an error
@@ -82,7 +84,7 @@ const Register = () => {
 
     try {
       await register(trimmedUsername, password);
-      router.push("/pages/account");
+      router.push("/pages/discover");
     } catch (err: any) {
       setError(err.message || "Registration failed");
     } finally {
@@ -140,10 +142,12 @@ const Register = () => {
           <CardBody className="p-6 sm:p-8">
             <div className="text-center mb-6">
               <h1 className="text-3xl font-bold bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent mb-2">
-                Create Account
+                {isFirstRun ? "Welcome to BorrowArr" : "Create Account"}
               </h1>
               <p className="text-foreground/60 text-sm">
-                Create your local BorrowArr account
+                {isFirstRun
+                  ? "Create the first admin account to finish setup and start using BorrowArr."
+                  : "Create your local BorrowArr account"}
               </p>
             </div>
 
@@ -231,17 +235,19 @@ const Register = () => {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
-              <p className="text-sm text-foreground/60">
-                Already have an account?{" "}
-                <Link
-                  className="text-secondary hover:text-secondary-600 font-medium transition-colors"
-                  href="/pages/login"
-                >
-                  Sign In
-                </Link>
-              </p>
-            </div>
+            {!isFirstRun && (
+              <div className="mt-6 text-center">
+                <p className="text-sm text-foreground/60">
+                  Already have an account?{" "}
+                  <Link
+                    className="text-secondary hover:text-secondary-600 font-medium transition-colors"
+                    href="/pages/login"
+                  >
+                    Sign In
+                  </Link>
+                </p>
+              </div>
+            )}
           </CardBody>
         </Card>
       </div>

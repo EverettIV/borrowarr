@@ -53,7 +53,6 @@ FLARESOLVERR_URL=http://localhost:8191
 FLARESOLVERR_ENABLED=false
 
 # DEBUG_SCRAPER=false
-# LETTERBOXD_HEADLESS=false
 `;
 }
 

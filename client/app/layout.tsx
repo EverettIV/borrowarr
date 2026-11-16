@@ -3,10 +3,9 @@ import { Metadata, Viewport } from "next";
 import clsx from "clsx";
 import { Providers } from "./providers";
 import AuthRouter from "./authRouter";
-import Footer from "@/components/footer";
 import { AuthProvider } from "@/context/AuthContext";
 import { fontSans } from "@/config/fonts";
-import { Navbar } from "@/components/navbar";
+import { AppChrome } from "@/components/AppChrome";
 import { rootMetadata } from "@/lib/metadata";
 
 export const metadata: Metadata = rootMetadata();
@@ -33,15 +32,7 @@ export default function RootLayout({
         <Providers>
           <AuthProvider>
             <AuthRouter>
-              <div className="relative flex flex-col min-h-screen min-w-0 w-full overflow-x-hidden">
-                <div className="fixed top-0 left-0 right-0 z-[9999]">
-                  <Navbar />
-                </div>
-                <main className="container mx-auto max-w-7xl pt-16 px-6 flex-grow overflow-x-hidden w-full">
-                  {children}
-                </main>
-                <Footer />
-              </div>
+              <AppChrome>{children}</AppChrome>
             </AuthRouter>
           </AuthProvider>
         </Providers>

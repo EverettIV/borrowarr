@@ -76,7 +76,7 @@ exports.getPublicRegistrationStatus = async (req, res) => {
     const isFirstRun = userCount === 0;
 
     if (isFirstRun) {
-      return res.json({ enabled: true });
+      return res.json({ enabled: true, isFirstRun: true });
     }
 
     // Get the first user's settings (admin settings) or default
@@ -84,6 +84,7 @@ exports.getPublicRegistrationStatus = async (req, res) => {
     
     res.json({ 
       enabled: settings ? settings.publicRegistrationEnabled : false,
+      isFirstRun: false,
     });
   } catch (error) {
     console.error('Error fetching registration status:', error);

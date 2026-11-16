@@ -7,7 +7,7 @@ BorrowArr does **not** provide, host, or index content. You connect your own ind
 ## Features
 
 - **Media Discovery**: Browse and search for movies and TV shows using TMDb integration
-- **Curated Lists**: Access featured lists from sources like Letterboxd and TMDb
+- **Curated Lists**: TMDb-based curated list browsing
 - **Indexer Integration**: Search across Torznab/Newznab indexers and Cardigann-style YAML definitions
 - **Download Client Support**: Integrate qBittorrent, Transmission, SABnzbd, NZBGet, and similar clients
 - **Automated Monitoring**: Monitor movies and TV series for new releases with quality profiles
@@ -32,7 +32,7 @@ BorrowArr does **not** provide, host, or index content. You connect your own ind
 - **Framework**: Express.js
 - **Database**: SQLite with Sequelize ORM
 - **Authentication**: JWT (JSON Web Tokens)
-- **Web Scraping**: Cheerio, Puppeteer
+- **Web Scraping**: Cheerio
 
 ## Project Structure
 
@@ -51,15 +51,12 @@ borrowarr/
 │   ├── models/                # Sequelize database models
 │   ├── services/              # Business logic services
 │   │   ├── downloadClients/   # Download client integrations
-│   │   ├── listProviders/     # TMDb list providers
-│   │   └── letter-box-scrapper/ # Letterboxd scraper
+│   │   └── listProviders/     # TMDb list providers
 │   ├── scrapers/              # Cardigann-style indexer definitions
 │   │   ├── definitions/       # YAML indexer definitions
 │   │   └── engine/            # Scraper engine
 │   ├── middleware/            # Express middleware (auth, etc.)
 │   └── config/                # Database configuration
-├── services/                  # Additional microservices
-│   └── letter-box-scrapper/   # Letterboxd integration service
 └── tunnels/                   # Cloudflare tunnel configuration
 ```
 
@@ -143,7 +140,6 @@ Create a `.env` file in the `/server` directory:
 | `FLARESOLVERR_ENABLED` | No | `false` | Enable FlareSolverr integration |
 | `API_BASE_URL` | No | `http://localhost:3013` | Base URL for internal API calls |
 | `DEBUG_SCRAPER` | No | `false` | Enable verbose scraper logging |
-| `LETTERBOXD_HEADLESS` | No | `false` | Run Letterboxd scraper in headless mode |
 
 ### Client Environment Variables
 
@@ -217,7 +213,6 @@ The server exposes the following main API routes:
 | `/api/Favorites` | User favorites |
 | `/api/History` | Download history |
 | `/api/PlexConnection` | Plex server integration |
-| `/api/FeaturedLists` | Curated lists from Letterboxd |
 | `/api/CuratedLists` | TMDb curated lists |
 | `/api/MediaRequests` | User content requests |
 | `/api/HiddenMedia` | Hidden/blocked content |
@@ -294,7 +289,6 @@ Contributions are welcome! Please follow these guidelines:
 - `/server/README.md` - Server setup and API details
 - `/server/scrapers/README.md` - Custom scraper development
 - `/server/services/INDEXER_SEARCH_README.md` - Indexer search service documentation
-- `/server/services/letter-box-scrapper/README.md` - Letterboxd integration
 - `/client/VALIDATION_REQUIREMENTS.md` - Pre-flight checks before queuing releases
 
 ## License
@@ -306,7 +300,6 @@ License: TBD
 ## Acknowledgments
 
 - [TMDb](https://www.themoviedb.org/) for movie and TV metadata
-- [Letterboxd](https://letterboxd.com/) for curated film lists
 - [Prowlarr](https://github.com/Prowlarr/Prowlarr) for Cardigann indexer definition format inspiration
 - [HeroUI](https://heroui.com/) for UI components
 

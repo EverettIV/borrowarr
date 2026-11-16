@@ -79,8 +79,8 @@ const sections: LegalSection[] = [
         </p>
         <ul>
           <li>
-            <strong>Metadata</strong> — TMDb, IMDb-related features, Letterboxd
-            list sources, and similar APIs for posters, descriptions, and IDs.
+            <strong>Metadata</strong> — TMDb, IMDb-related features, and similar
+            APIs for posters, descriptions, and IDs.
           </li>
           <li>
             <strong>Authentication</strong> — Firebase or other identity
