@@ -66,8 +66,23 @@ require("./models/ActivityLog");
 // Database must be ready before handling API requests (avoids false “not first run” on cold start).
 let dbReady = false;
 const dbReadyPromise = connectDB()
-  .then(() => {
+  .then(async () => {
     dbReady = true;
+    const {
+      logMediaPathsFromEnvOnStartup,
+      ensureMediaDirectoriesFromEnv,
+      backfillSettingsMediaPathsFromEnv,
+    } = require('./config/mediaPaths');
+    logMediaPathsFromEnvOnStartup();
+    try {
+      const { updated } = await backfillSettingsMediaPathsFromEnv();
+      if (updated > 0) {
+        console.log(`[MediaPaths] Backfilled media paths from env for ${updated} user(s)`);
+      }
+      await ensureMediaDirectoriesFromEnv();
+    } catch (err) {
+      console.warn('[MediaPaths] Startup path setup:', err.message);
+    }
   })
   .catch((error) => {
     console.error("❌ Database failed to initialize:", error);

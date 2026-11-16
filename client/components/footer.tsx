@@ -1,7 +1,6 @@
 "use client";
 import React, { useState } from "react";
 import Link from "next/link";
-import { SocialIcon } from "react-social-icons";
 import {
   Film,
   Tv,
@@ -10,7 +9,6 @@ import {
   Users,
   Database,
   Server,
-  Mail,
   Heart,
   Coffee,
   Bitcoin,
@@ -28,10 +26,8 @@ import {
 } from "@heroui/react";
 import { Button } from "@heroui/react";
 import { Snippet } from "@heroui/react";
-import { Logo } from "@/components/icons";
 import "../styles/Footer.scss";
 
-// Crypto Icons
 const EthIcon = ({
   size = 16,
   className = "",
@@ -100,10 +96,10 @@ const MoneroIcon = ({
 );
 
 const WALLET_ADDRESSES = {
-  BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh", // Placeholder
-  ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", // Placeholder
-  USDC: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F", // Placeholder
-  XMR: "44AFFq5kSiGBoZ4NMDwYtN187aarBFHRK1q31C31p79s5Bq6F644A3mZ67653434343", // Placeholder
+  BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+  ETH: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+  USDC: "0x71C7656EC7ab88b098defB751B7401B5f6d8976F",
+  XMR: "44AFFq5kSiGBoZ4NMDwYtN187aarBFHRK1q31C31p79s5Bq6F644A3mZ67653434343",
 };
 
 const Footer = () => {
@@ -127,61 +123,21 @@ const Footer = () => {
   };
 
   return (
-    <footer className="Footer">
-      {/* Animated gradient line */}
-      <div className="footer-gradient-line" />
-
+    <footer className="Footer border-t-2 border-secondary bg-content1">
       <div className="footer-container">
-        {/* Brand Section */}
         <div className="footer-section footer-brand">
-          <div className="brand-logo-wrapper">
-            <div className="brand-logo-icon">
-              <Logo size={40} />
-            </div>
-            <div>
-              <h3 className="brand-name">BorrowArr</h3>
-              <p className="brand-tagline">Self-Hosted Media Hub</p>
-            </div>
-          </div>
+          <Link
+            className="brand-heading font-bold text-xl sm:text-2xl bg-gradient-to-r from-secondary to-secondary-600 bg-clip-text text-transparent transition-transform hover:scale-[1.02] w-fit"
+            href="/pages/discover"
+          >
+            BorrowArr
+          </Link>
           <p className="brand-description">
             Take control of your media library with powerful automation,
             beautiful discovery, and complete privacy.
           </p>
-          <div className="social-links">
-            <SocialIcon
-              aria-label="GitHub"
-              className="social-icon"
-              rel="noopener noreferrer"
-              target="_blank"
-              url="https://github.com"
-            />
-            <SocialIcon
-              aria-label="Discord"
-              className="social-icon"
-              rel="noopener noreferrer"
-              target="_blank"
-              url="https://discord.com"
-            />
-            <SocialIcon
-              aria-label="X"
-              className="social-icon"
-              rel="noopener noreferrer"
-              target="_blank"
-              url="https://x.com"
-            />
-            <a
-              aria-label="Email"
-              className="social-link"
-              href="mailto:contact@borrowarr.com"
-            >
-              <div className="email-icon">
-                <Mail size={20} />
-              </div>
-            </a>
-          </div>
         </div>
 
-        {/* Discover Section */}
         <div className="footer-section">
           <h4 className="section-title">Discover</h4>
           <ul className="section-links">
@@ -212,88 +168,6 @@ const Footer = () => {
           </ul>
         </div>
 
-        {/* Support Section */}
-        <div className="footer-section">
-          <h4 className="section-title">Support</h4>
-          <ul className="section-links">
-            <li>
-              <a
-                className="footer-link"
-                href="https://www.buymeacoffee.com"
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <Coffee size={16} />
-                <span>Buy Me a Coffee</span>
-              </a>
-            </li>
-            <li className="mt-2">
-              <span className="text-sm text-default-500 block mb-2">
-                Donate Crypto:
-              </span>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  className="p-2 rounded-full bg-default-100 hover:bg-default-200 transition-colors"
-                  onClick={() =>
-                    handleCryptoClick(
-                      "Bitcoin",
-                      "BTC",
-                      WALLET_ADDRESSES.BTC,
-                      <Bitcoin className="text-[#F7931A]" size={20} />,
-                    )
-                  }
-                  title="Donate Bitcoin"
-                >
-                  <Bitcoin className="text-[#F7931A]" size={20} />
-                </button>
-                <button
-                  className="p-2 rounded-full bg-default-100 hover:bg-default-200 transition-colors"
-                  onClick={() =>
-                    handleCryptoClick(
-                      "Ethereum",
-                      "ETH",
-                      WALLET_ADDRESSES.ETH,
-                      <EthIcon size={20} />,
-                    )
-                  }
-                  title="Donate Ethereum"
-                >
-                  <EthIcon size={20} />
-                </button>
-                <button
-                  className="p-2 rounded-full bg-default-100 hover:bg-default-200 transition-colors"
-                  onClick={() =>
-                    handleCryptoClick(
-                      "USDC",
-                      "USDC",
-                      WALLET_ADDRESSES.USDC,
-                      <UsdcIcon size={20} />,
-                    )
-                  }
-                  title="Donate USDC"
-                >
-                  <UsdcIcon size={20} />
-                </button>
-                <button
-                  className="p-2 rounded-full bg-default-100 hover:bg-default-200 transition-colors"
-                  onClick={() =>
-                    handleCryptoClick(
-                      "Monero",
-                      "XMR",
-                      WALLET_ADDRESSES.XMR,
-                      <MoneroIcon size={20} />,
-                    )
-                  }
-                  title="Donate Monero"
-                >
-                  <MoneroIcon size={20} />
-                </button>
-              </div>
-            </li>
-          </ul>
-        </div>
-
-        {/* Settings Section */}
         <div className="footer-section">
           <h4 className="section-title">Settings</h4>
           <ul className="section-links">
@@ -327,7 +201,6 @@ const Footer = () => {
           </ul>
         </div>
 
-        {/* Account Section */}
         <div className="footer-section">
           <h4 className="section-title">Account</h4>
           <ul className="section-links">
@@ -377,15 +250,94 @@ const Footer = () => {
         </div>
       </div>
 
-      {/* Bottom Bar */}
       <div className="footer-bottom">
         <div className="footer-bottom-container">
+          <div className="footer-support">
+            <a
+              className="footer-support-coffee"
+              href="https://www.buymeacoffee.com"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              <Coffee size={16} />
+              <span>Buy Me a Coffee</span>
+            </a>
+            <div
+              aria-label="Donate cryptocurrency"
+              className="footer-support-crypto"
+              role="group"
+            >
+              <button
+                className="footer-crypto-btn"
+                onClick={() =>
+                  handleCryptoClick(
+                    "Bitcoin",
+                    "BTC",
+                    WALLET_ADDRESSES.BTC,
+                    <Bitcoin className="text-[#F7931A]" size={18} />,
+                  )
+                }
+                title="Donate Bitcoin"
+                type="button"
+              >
+                <Bitcoin className="text-[#F7931A]" size={18} />
+              </button>
+              <button
+                className="footer-crypto-btn"
+                onClick={() =>
+                  handleCryptoClick(
+                    "Ethereum",
+                    "ETH",
+                    WALLET_ADDRESSES.ETH,
+                    <EthIcon size={18} />,
+                  )
+                }
+                title="Donate Ethereum"
+                type="button"
+              >
+                <EthIcon size={18} />
+              </button>
+              <button
+                className="footer-crypto-btn"
+                onClick={() =>
+                  handleCryptoClick(
+                    "USDC",
+                    "USDC",
+                    WALLET_ADDRESSES.USDC,
+                    <UsdcIcon size={18} />,
+                  )
+                }
+                title="Donate USDC"
+                type="button"
+              >
+                <UsdcIcon size={18} />
+              </button>
+              <button
+                className="footer-crypto-btn"
+                onClick={() =>
+                  handleCryptoClick(
+                    "Monero",
+                    "XMR",
+                    WALLET_ADDRESSES.XMR,
+                    <MoneroIcon size={18} />,
+                  )
+                }
+                title="Donate Monero"
+                type="button"
+              >
+                <MoneroIcon size={18} />
+              </button>
+            </div>
+          </div>
+
           <p className="copyright">
-            © {currentYear} BorrowArr. Built with{" "}
-            <Heart className="heart-icon" size={14} /> by developers, for
-            developers.
+            <span>
+              © {currentYear} BorrowArr. Built with
+            </span>
+            <Heart aria-hidden className="heart-icon" size={14} />
+            <span>by developers, for developers.</span>
           </p>
-          <p className="text-xs text-foreground/50 max-w-2xl text-center mt-2">
+          <p className="footer-disclaimer">
             BorrowArr does not host or supply media. You connect your own
             indexers and download clients and are responsible for lawful use.
           </p>
@@ -405,10 +357,9 @@ const Footer = () => {
         </div>
       </div>
 
-      {/* Crypto Donation Modal */}
       <Modal isOpen={isOpen} onClose={onClose} placement="center">
         <ModalContent>
-          {(onClose) => (
+          {() => (
             <>
               <ModalHeader className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
@@ -420,8 +371,7 @@ const Footer = () => {
               </ModalHeader>
               <ModalBody>
                 <p className="text-sm text-default-500 mb-2">
-                  Scan the QR code or copy the address below to donate. Thank
-                  you for your support!
+                  Copy the address below to donate. Thank you for your support!
                 </p>
                 <Snippet className="w-full" symbol="">
                   {selectedCoin?.address || "Address not set"}

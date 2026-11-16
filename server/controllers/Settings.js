@@ -1,4 +1,8 @@
 const Settings = require('../models/Settings');
+const {
+  getMediaPathCreateDefaults,
+  mergeSettingsWithEnvMediaPaths,
+} = require('../config/mediaPaths');
 const { clampQualityPair } = require('../utils/qualitySelection');
 const User = require("../models/User");
 const fs = require('fs').promises;
@@ -57,10 +61,10 @@ exports.getSettings = async (req, res) => {
 
     // If no settings exist, create default settings
     if (!settings) {
-      settings = await Settings.create({ userId });
+      settings = await Settings.create({ userId, ...getMediaPathCreateDefaults() });
     }
 
-    res.json(settings);
+    res.json(mergeSettingsWithEnvMediaPaths(settings));
   } catch (error) {
     console.error('Error fetching settings:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });
@@ -265,7 +269,11 @@ exports.updateSettings = async (req, res) => {
     );
     
     if (!settings) {
-      settings = await Settings.create({ userId, ...updates });
+      settings = await Settings.create({
+        userId,
+        ...getMediaPathCreateDefaults(),
+        ...updates,
+      });
     } else {
       // Only update fields that are provided in the request
       const fieldsToUpdate = {};
@@ -375,7 +383,7 @@ exports.updateSettings = async (req, res) => {
       }
     }
 
-    res.json(settings);
+    res.json(mergeSettingsWithEnvMediaPaths(settings));
   } catch (error) {
     console.error('Error updating settings:', error);
     // Provide more detailed error information

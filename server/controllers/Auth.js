@@ -160,9 +160,11 @@ exports.register = async (req, res) => {
     });
 
     if (isFirstUser) {
+      const { getMediaPathCreateDefaults } = require('../config/mediaPaths');
       await Settings.create({
         userId: user.id,
         publicRegistrationEnabled: false,
+        ...getMediaPathCreateDefaults(),
       });
     }
 

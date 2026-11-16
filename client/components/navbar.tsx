@@ -520,7 +520,6 @@ export const Navbar = () => {
         <div className="mx-auto flex w-full max-w-md flex-col gap-1 px-4 py-3">
           <div className="mb-3 sm:hidden">{renderSearchControls()}</div>
           {[
-            { label: "Premium", href: "/pages/products", icon: Sparkles },
             { label: "Discover", href: "/pages/discover" },
             { label: "Discover Movies", href: "/pages/discover/movies" },
             { label: "Discover Series", href: "/pages/discover/series" },
@@ -616,12 +615,7 @@ export const Navbar = () => {
                 </Link>
               ) : (
                 <NextLink
-                  className={clsx(
-                    "block w-full rounded-lg px-3 py-2 text-base font-semibold leading-6 transition-colors hover:bg-secondary/10 hover:text-secondary",
-                    item.label === "Premium"
-                      ? "text-transparent bg-clip-text bg-gradient-to-r from-purple-500 to-pink-500 font-bold"
-                      : "text-foreground",
-                  )}
+                  className="block w-full rounded-lg px-3 py-2 text-base font-semibold leading-6 text-foreground transition-colors hover:bg-secondary/10 hover:text-secondary"
                   href={item.href}
                   onClick={() => setIsMenuOpen(false)}
                 >

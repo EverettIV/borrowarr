@@ -3001,7 +3001,6 @@ def create_all_files():
     create_directory_if_not_exists(os.path.join(current_path, "app", "pages"))
     create_directory_if_not_exists(os.path.join(current_path, "app", "pages", "account"))
     create_directory_if_not_exists(os.path.join(current_path, "app", "pages", "login"))
-    create_directory_if_not_exists(os.path.join(current_path, "app", "pages", "products"))
     create_directory_if_not_exists(os.path.join(current_path, "app", "pages", "register"))
     create_directory_if_not_exists(os.path.join(current_path, "components"))
     create_directory_if_not_exists(os.path.join(current_path, "components", "ui"))
@@ -3056,11 +3055,8 @@ def create_all_files():
     
     # Create page files
     create_file_if_not_exists(os.path.join(current_path, "app", "pages", "login", "page.js"), login_page_content)
-    create_file_if_not_exists(os.path.join(current_path, "app", "pages", "products", "page.js"), products_page_content)
     create_file_if_not_exists(os.path.join(current_path, "app", "pages", "register", "page.js"), register_page_content)
     create_file_if_not_exists(os.path.join(current_path, "app", "pages", "account", "page.tsx"), account_page_content)
-    create_file_if_not_exists(os.path.join(current_path, "app", "pages", "account", "getPremiumStatus.ts"), get_premium_status_content)
-    create_file_if_not_exists(os.path.join(current_path, "app", "pages", "account", "stripePayment.tsx"), stripe_payment_content)
     
     # Create component files
     create_file_if_not_exists(os.path.join(current_path, "components", "footer.tsx"), footer_content)

@@ -1,310 +1,231 @@
 # BorrowArr
 
-BorrowArr is a self-hosted **movie and TV collection manager** for Usenet and BitTorrent users. It monitors titles you add, searches your configured indexers for releases, and interfaces with download clients to grab, sort, rename, and import files into your library. BorrowArr integrates with Torznab/Newznab indexers, download clients, Plex, and TMDb metadata.
+BorrowArr is a self-hosted app for managing movies and TV: discover titles with TMDb, search your indexers, send grabs to a download client, monitor what you want, and organize files in your library.
 
-BorrowArr does **not** provide, host, or index content. You connect your own indexers and download clients and are responsible for compliance with applicable law and third-party terms of service.
+It does **not** host or index media. You bring your own indexers and clients and use them lawfully and per their terms of service.
 
-## Features
+---
 
-- **Media Discovery**: Browse and search for movies and TV shows using TMDb integration
-- **Curated Lists**: TMDb-based curated list browsing
-- **Indexer Integration**: Search across Torznab/Newznab indexers and Cardigann-style YAML definitions
-- **Download Client Support**: Integrate qBittorrent, Transmission, SABnzbd, NZBGet, and similar clients
-- **Automated Monitoring**: Monitor movies and TV series for new releases with quality profiles
-- **Plex Integration**: Connect to Plex to view your library and get recommendations
-- **Media Requests**: Request workflows with optional approval
-- **User Management**: Multi-user support with role-based permissions
-- **Parental Guides**: IMDb parental guide information
-- **File Management**: Automatic file renaming and organization
-- **Mobile Support**: Capacitor-based iOS/Android app support (in development)
+## What you need
 
-## Tech Stack
+| Requirement | Notes |
+|-------------|--------|
+| **Indexer** | Torznab/Newznab URL (or add one via **Settings → Indexers**) |
+| **Download client** | qBittorrent, Transmission, SABnzbd, NZBGet, etc., reachable from the BorrowArr **server** |
+| **Media + download folders** | Configured in `server/.env` — see below |
 
-### Client (Frontend)
-- **Framework**: Next.js 15 with React 18
-- **Styling**: Tailwind CSS, SCSS, HeroUI components
-- **Authentication**: Firebase Auth
-- **Language**: TypeScript
-- **Mobile**: Capacitor for iOS/Android builds
+**Pick one way to run the app:**
 
-### Server (Backend)
-- **Runtime**: Node.js 20+
-- **Framework**: Express.js
-- **Database**: SQLite with Sequelize ORM
-- **Authentication**: JWT (JSON Web Tokens)
-- **Web Scraping**: Cheerio
+| Path | Requirements |
+|------|----------------|
+| **Docker (recommended)** | Docker Desktop (macOS/Windows) or Docker Engine + Compose (Linux) |
+| **Manual** | Node.js **20+**, two terminals (server + client) |
 
-## Project Structure
+Optional: your own [TMDb API key](https://www.themoviedb.org/settings/api) in `server/.env` (a demo key is used when unset).
 
-```
-borrowarr/
-├── client/                    # Next.js frontend application
-│   ├── app/                   # App router pages and layouts
-│   │   └── pages/             # Feature pages (discover, settings, etc.)
-│   ├── components/            # React components
-│   ├── context/               # Auth context providers
-│   ├── hooks/                 # Custom React hooks
-│   ├── styles/                # SCSS stylesheets
-│   └── config/                # Site configuration
-├── server/                    # Express.js backend API
-│   ├── routes/                # API route handlers
-│   ├── models/                # Sequelize database models
-│   ├── services/              # Business logic services
-│   │   ├── downloadClients/   # Download client integrations
-│   │   └── listProviders/     # TMDb list providers
-│   ├── scrapers/              # Cardigann-style indexer definitions
-│   │   ├── definitions/       # YAML indexer definitions
-│   │   └── engine/            # Scraper engine
-│   ├── middleware/            # Express middleware (auth, etc.)
-│   └── config/                # Database configuration
-└── tunnels/                   # Cloudflare tunnel configuration
+---
+
+## Media and download paths (`server/.env`)
+
+BorrowArr needs **two roots** on the machine where the **server** runs. It derives four folders:
+
+| Variable | Subfolders used by the app |
+|----------|----------------------------|
+| `BORROWARR_MEDIA` | `{MEDIA}/movies`, `{MEDIA}/tv` (library) |
+| `BORROWARR_DOWNLOADS` | `{DOWNLOADS}/movies`, `{DOWNLOADS}/tv` (client / watcher) |
+
+Point qBittorrent (or similar) at the same download tree — e.g. save path `{DOWNLOADS}` with categories `movies` and `tv`.
+
+```bash
+cp server/.env.example server/.env
 ```
 
-## Prerequisites
+Edit at least these (Docker defaults shown; on a **manual** install use **host** paths the server can access):
 
-- **Node.js** 20+ (LTS recommended)
-- **npm** or **pnpm** package manager
-- **SQLite** (bundled, no separate installation required)
-- **Firebase Project** (for authentication)
-- **TMDb API Key** (for media metadata)
+```bash
+BORROWARR_MEDIA=/media
+BORROWARR_DOWNLOADS=/downloads
+BORROWARR_ENSURE_MEDIA_DIRS=true
+```
 
-### Optional
-- **Prowlarr** (for additional indexer support via proxy)
-- **FlareSolverr** (for Cloudflare-protected sites)
-- **Plex Media Server** (for library integration)
-- **Docker** (for containerized deployment)
+Example **manual** install on macOS/Linux:
 
-## Installation
+```bash
+BORROWARR_MEDIA=/Users/you/borrowarr/media
+BORROWARR_DOWNLOADS=/Users/you/borrowarr/downloads
+BORROWARR_ENSURE_MEDIA_DIRS=true
+```
 
-### 1. Clone the Repository
+JWT secrets are auto-generated on first server start if left blank in `.env`.
+
+---
+
+## Quick start (Docker)
+
+### 1. Clone, env, and start
 
 ```bash
 git clone https://github.com/thefourthlion/borrowarr.git
 cd borrowarr
+cp server/.env.example server/.env
+# Confirm BORROWARR_MEDIA=/media and BORROWARR_DOWNLOADS=/downloads (defaults in .env.example)
+docker compose up -d --build
 ```
 
-### 2. Install Server Dependencies
+First build can take a few minutes. Compose mounts host `./media` → `/media` and `./downloads` → `/downloads` and passes the same paths via env.
+
+| Service | URL |
+|---------|-----|
+| Web UI | http://localhost:3012 |
+| API | http://localhost:3013 |
+
+Logs:
 
 ```bash
-cd server
-npm install
-# or with pnpm
-pnpm install && pnpm rebuild sqlite3
+docker compose logs -f borrowarr-server borrowarr-client
 ```
 
-### 3. Install Client Dependencies
+**Custom NAS paths:**
 
 ```bash
-cd ../client
-npm install --legacy-peer-deps
-# or with pnpm
-pnpm install
+export BORROWARR_HOST_MEDIA=/mnt/nas/library
+export BORROWARR_HOST_DOWNLOADS=/mnt/nas/incoming
+docker compose up -d --build
 ```
 
-### 4. Configure Environment Variables
+**Networking:** The API runs in a container. Download client host must be reachable from there — e.g. `host.docker.internal` (Docker Desktop), LAN IP, or NAS hostname. If search works but grabs never hit the client, fix host/port first.
 
-Create `.env` files for both client and server (see [Configuration](#configuration) section below).
-
-### 5. Start Development Servers
-
-**Server** (from `/server` directory):
-```bash
-npm run dev
-# Server runs on http://localhost:3013
-```
-
-**Client** (from `/client` directory):
-```bash
-npm run dev
-# Client runs on http://localhost:3012
-```
-
-## Configuration
-
-### Server Environment Variables
-
-Create a `.env` file in the `/server` directory:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `PORT` | No | `3013` | Server port |
-| `JWT_SECRET` | **Yes** | - | Secret key for signing JWT access tokens |
-| `JWT_REFRESH_SECRET` | **Yes** | - | Secret key for signing JWT refresh tokens |
-| `JWT_ACCESS_EXPIRY` | No | `15m` | Access token expiry duration |
-| `JWT_REFRESH_EXPIRY` | No | `7d` | Refresh token expiry duration |
-| `TMDB_API` | No | (bundled demo key) | **Your own** TMDb v3 API key (recommended for LAN/production). A shared demo key is used when unset so first-run works; rate limits are stricter when the demo key is active. |
-| `TMDB_API_READ` | No | (bundled demo token) | Optional TMDb v4 read token; override in production if you use one. |
-| `PROWLARR_URL` | No | - | Prowlarr instance URL for indexer proxy |
-| `PROWLARR_API_KEY` | No | - | Prowlarr API key |
-| `FLARESOLVERR_URL` | No | `http://localhost:8191` | FlareSolverr URL for Cloudflare bypass |
-| `FLARESOLVERR_ENABLED` | No | `false` | Enable FlareSolverr integration |
-| `API_BASE_URL` | No | `http://localhost:3013` | Base URL for internal API calls |
-| `DEBUG_SCRAPER` | No | `false` | Enable verbose scraper logging |
-
-### Client Environment Variables
-
-Create a `.env` file in the `/client` directory:
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NEXT_PUBLIC_API_URL` | **Yes** | `http://localhost:3013` | Backend API URL |
-| `NEXT_PUBLIC_SITE_URL` | No | - | Public site URL (e.g. `https://borrowarr.example.com`) for canonical links, Open Graph, and sitemap when indexing is enabled |
-| `NEXT_PUBLIC_ALLOW_SEARCH_INDEXING` | No | `false` | Set to `true` only on a public demo/marketing deploy; keeps self-hosted instances out of search engines by default |
-| `NEXT_PUBLIC_STRIPE_LINK_PREMIUM` | No | - | Stripe payment link for premium tier |
-| `NEXT_PUBLIC_STRIPE_LINK_ULTIMATE` | No | - | Stripe payment link for ultimate tier |
-
-### Firebase Configuration
-
-The client uses Firebase for authentication. Firebase configuration is currently set in `/client/firebase.ts`. For production, you should:
-
-1. Create a Firebase project at [console.firebase.google.com](https://console.firebase.google.com)
-2. Enable Authentication with your preferred providers (Email/Password, Google, etc.)
-3. Update the Firebase config in `firebase.ts` with your project credentials
-
-## Running with Docker
-
-### Client
+**Browser on another machine** — rebuild client with your API URL:
 
 ```bash
-cd client
-docker-compose up -d
-# Runs on http://localhost:3012
+NEXT_PUBLIC_API_URL=http://your-host:3013 docker compose up -d --build
 ```
+
+**Compose address-pool errors:** `docker network prune -f` — or on Linux: `docker compose -f docker-compose.host-network.yml up -d --build`.
+
+### 2. First account
+
+1. Open http://localhost:3012  
+2. On a **fresh database**, use **register** and create the first account (admin).  
+3. Public signups are off after the first user (**Users** page).
+
+Reset everything:
+
+```bash
+docker compose down -v
+docker compose up -d --build
+```
+
+### 3. Indexer → download client → monitoring
+
+1. **Settings → Indexers** — add Torznab/Newznab, test, enable.  
+2. **Settings → Download Clients** — add client, test, save. Default categories: **`movie`** and **`tv`**.  
+3. **System** — optional **Automatic Grab** + check interval.  
+4. Add titles from **Discover** / **Search**, or use **Requests**.
+
+**File Management** should show `/media/movies`, `/media/tv`, `/downloads/movies`, `/downloads/tv` when env defaults are in place.
+
+---
+
+## Manual install (from scratch)
+
+Run the API and UI on the host with Node **20+**. Use **host paths** in `server/.env` for `BORROWARR_MEDIA` and `BORROWARR_DOWNLOADS` (create the folders or set `BORROWARR_ENSURE_MEDIA_DIRS=true`).
 
 ### Server
 
 ```bash
+cd borrowarr
+cp server/.env.example server/.env
+# Edit BORROWARR_MEDIA and BORROWARR_DOWNLOADS to your host paths
+
 cd server
-docker-compose up -d
-# Runs on http://localhost:3013
+npm install
+npm run dev
 ```
 
-### Build Images Manually
+API: http://localhost:3013 (`npm run dev` uses nodemon). Production-style: `node index.js` after `npm run setup:env` if you need a one-off `.env` bootstrap.
 
-**Client:**
+### Client
+
+In a **second terminal**:
+
 ```bash
+cd borrowarr
+cp client/.env.example client/.env
+# NEXT_PUBLIC_API_URL=http://localhost:3013
+
 cd client
-docker build -t borrowarr-client .
-docker run -p 3012:3012 borrowarr-client
+npm install --legacy-peer-deps
 ```
 
-**Server:**
+**Development** (hot reload):
+
 ```bash
-cd server
-docker build -t borrowarr-server .
-docker run -p 3013:3013 borrowarr-server
+npm run dev
 ```
 
-## API Endpoints
+Web UI: http://localhost:3012
 
-The server exposes the following main API routes:
+**Production-style** on the host:
 
-| Route | Description |
-|-------|-------------|
-| `/api/auth` | Authentication (login, register, refresh tokens) |
-| `/api/Users` | User management |
-| `/api/Search` | Search across configured indexers |
-| `/api/Indexers` | Manage indexers |
-| `/api/DownloadClients` | Manage download clients |
-| `/api/TMDB` | TMDb movie/TV data proxy (**login required**; server-side cache + per-user rate limits) |
-| `/api/MonitoredMovies` | Movie monitoring and automation |
-| `/api/MonitoredSeries` | TV series monitoring and automation |
-| `/api/Settings` | Application settings |
-| `/api/Favorites` | User favorites |
-| `/api/History` | Download history |
-| `/api/PlexConnection` | Plex server integration |
-| `/api/CuratedLists` | TMDb curated lists |
-| `/api/MediaRequests` | User content requests |
-| `/api/HiddenMedia` | Hidden/blocked content |
-| `/api/ParentalGuide` | Parental guide information |
-| `/api/Cardigann` | Custom scraper management |
+```bash
+npm run build
+npm start
+```
 
-## Adding Custom Indexers
+### After both are running
 
-BorrowArr supports custom indexer definitions using YAML files (Cardigann-style). See `/server/scrapers/README.md` for detailed documentation on creating custom indexer definitions.
+Same setup flow as Docker: register → indexer → download client → (optional) monitoring. The download client can use `localhost` because the server is not in Docker.
 
-Example YAML definition location: `/server/scrapers/definitions/`
+---
 
-## Scripts
+## Typical workflow
 
-### Server Scripts
+```text
+Register (first run) → Indexer → Download client → Search or Request
+                              ↘ Monitor list + Automatic Grab (optional)
+```
 
-| Script | Description |
-|--------|-------------|
-| `npm start` / `npm run dev` | Start the server with nodemon |
-| `npm run migrate:user-id` | Run user ID migration |
+- **Search** — query indexers and send a release to the client.  
+- **Request / Monitor** — track titles; automatic grab searches and queues releases.  
+- **History** — past grabs and import status.
 
-### Client Scripts
+---
 
-| Script | Description |
-|--------|-------------|
-| `npm run dev` | Start development server with Turbopack |
-| `npm run build` | Build for production |
-| `npm run start` | Start production server |
-| `npm run lint` | Run ESLint |
-| `npm run cap:sync:ios` | Sync Capacitor iOS project |
-| `npm run cap:run:ios` | Build and run on iOS |
+## Optional server configuration
 
-## Deployment
+After editing `server/.env` (TMDb, Prowlarr, FlareSolverr, media paths):
 
-### Production Considerations
+```bash
+# Docker
+docker compose up -d --build borrowarr-server
 
-1. **Environment Variables**: Ensure all required environment variables are set, especially:
-   - `JWT_SECRET` and `JWT_REFRESH_SECRET` (use strong, unique values)
-   - `NEXT_PUBLIC_API_URL` (point to your production API)
+# Manual — restart the server process
+```
 
-2. **Database**: SQLite is suitable for small deployments. For larger installations, consider migrating to PostgreSQL or MySQL.
+See `server/.env.example` for all keys.
 
-3. **Reverse Proxy**: Use nginx or Caddy as a reverse proxy with SSL termination.
+---
 
-4. **Docker**: Use the provided Docker configurations for consistent deployments.
+## More documentation
 
-### Cloudflare Tunnel (Optional)
+| Topic | Location |
+|-------|----------|
+| Custom Cardigann indexers | `server/scrapers/README.md` |
+| Indexer search behavior | `server/services/INDEXER_SEARCH_README.md` |
+| Pre-flight checks (indexer + client) | `client/VALIDATION_REQUIREMENTS.md` |
+| Cloudflare Tunnel (optional) | `tunnels/` |
 
-A Cloudflare Tunnel configuration is provided in `/tunnels/docker-compose.yaml` for secure external access without opening ports. You'll need to:
-
-1. Create a tunnel in Cloudflare Zero Trust dashboard
-2. Replace the tunnel token in the configuration
-3. Configure your DNS settings in Cloudflare
+---
 
 ## Contributing
 
-Contributions are welcome! Please follow these guidelines:
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
-### Development Guidelines
-
-- Follow existing code style and conventions
-- Write meaningful commit messages
-- Update documentation for significant changes
-- Test your changes locally before submitting
-
-## Related Documentation
-
-- `/server/README.md` - Server setup and API details
-- `/server/scrapers/README.md` - Custom scraper development
-- `/server/services/INDEXER_SEARCH_README.md` - Indexer search service documentation
-- `/client/VALIDATION_REQUIREMENTS.md` - Pre-flight checks before queuing releases
+Fork, branch, commit, and open a pull request. Match existing style and test locally when you can.
 
 ## License
 
 License: TBD
 
-<!-- TODO: Add appropriate open-source license (MIT, GPL, etc.) -->
-
-## Acknowledgments
-
-- [TMDb](https://www.themoviedb.org/) for movie and TV metadata
-- [Prowlarr](https://github.com/Prowlarr/Prowlarr) for Cardigann indexer definition format inspiration
-- [HeroUI](https://heroui.com/) for UI components
-
----
-
 ## Disclaimer
 
-BorrowArr is neutral management software, similar in role to other *Arr applications. It does not supply media, operate indexers, or run download clients for you. How you configure and use indexers and clients is your responsibility. The authors make no warranties and accept no liability for misuse. Use only with content and services you have the right to access, and in accordance with applicable law and third-party terms of service.
+BorrowArr is neutral management software, similar in role to other *Arr apps. It does not supply media, run indexers, or run download clients for you. You are responsible for lawful use and for complying with the terms of the services you connect.

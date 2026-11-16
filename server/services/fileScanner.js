@@ -1,6 +1,7 @@
 const fs = require('fs').promises;
 const path = require('path');
 const Settings = require('../models/Settings');
+const { mergeSettingsWithEnvMediaPaths } = require('../config/mediaPaths');
 
 /**
  * File Scanner Service
@@ -225,7 +226,7 @@ function getSeriesMediaDirectory(settings) {
  */
 async function getUserMovieDirectory(userId) {
   const settings = await Settings.findOne({ where: { userId } });
-  return getMovieMediaDirectory(settings);
+  return getMovieMediaDirectory(mergeSettingsWithEnvMediaPaths(settings));
 }
 
 /**
@@ -233,7 +234,7 @@ async function getUserMovieDirectory(userId) {
  */
 async function getUserSeriesDirectory(userId) {
   const settings = await Settings.findOne({ where: { userId } });
-  return getSeriesMediaDirectory(settings);
+  return getSeriesMediaDirectory(mergeSettingsWithEnvMediaPaths(settings));
 }
 
 /** Folder scanned by manual preview / rename (media library vs download folder). */
@@ -255,7 +256,7 @@ function getNamingScanDirectory(settings, type) {
 
 async function getUserNamingScanDirectory(userId, type) {
   const settings = await Settings.findOne({ where: { userId } });
-  return getNamingScanDirectory(settings, type);
+  return getNamingScanDirectory(mergeSettingsWithEnvMediaPaths(settings), type);
 }
 
 /**

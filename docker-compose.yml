@@ -23,8 +23,14 @@ services:
       NODE_ENV: production
       PORT: "3013"
       SQLITE_STORAGE_PATH: /app/data/database.sqlite
+      # Container paths — mount host dirs at the same paths (see server/.env.example)
+      BORROWARR_MEDIA: ${BORROWARR_MEDIA:-/media}
+      BORROWARR_DOWNLOADS: ${BORROWARR_DOWNLOADS:-/downloads}
+      BORROWARR_ENSURE_MEDIA_DIRS: ${BORROWARR_ENSURE_MEDIA_DIRS:-true}
     volumes:
       - borrowarr-server-data:/app/data
+      - ${BORROWARR_HOST_MEDIA:-./media}:/media
+      - ${BORROWARR_HOST_DOWNLOADS:-./downloads}:/downloads
 
   borrowarr-client:
     build:
